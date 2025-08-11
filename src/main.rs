@@ -12,11 +12,12 @@ use std::time::{Duration, Instant};
 
 use color_eyre::Result;
 use crossterm::event::{self, KeyCode};
+use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::symbols::{self, Marker};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Axis, Block, Chart, Dataset, GraphType, LegendPosition};
+use ratatui::widgets::{Axis, Block, Chart, Dataset, FrameExt, GraphType, LegendPosition, Paragraph, Widget, WidgetRef};
 use ratatui::{DefaultTerminal, Frame};
 
 fn main() -> Result<()> {
@@ -32,6 +33,7 @@ struct App {
     window: [f64; 2],
     samples_per_window: usize,
     sampling: f64,
+    controller: PIDController,
 }
 
 #[derive(Clone)]
@@ -59,6 +61,35 @@ struct FirstOrderSystem {
     b: f64,
     u: f64,
     y_k: f64,
+}
+
+#[derive(Clone, Default)]
+struct PIDController {
+    p: f64,
+    i: f64,
+    d: f64,
+}
+
+impl WidgetRef for &PIDController {
+    fn render_ref(&self,area:Rect,buf: &mut Buffer) {
+        let lines = vec![
+            Line::from(Span::styled(
+                format!("P = {}", self.p),
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                format!("I = {}", self.i),
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                format!("D = {}", self.d),
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+        ];
+        let paragraph = Paragraph::new(lines
+        ).block(Block::bordered().title_top("Controller"));
+        paragraph.render(area, buf);
+    }
 }
 
 impl SinSignal {
@@ -100,6 +131,16 @@ impl Iterator for StepSignal {
     }
 }
 
+impl WidgetRef for &StepSignal {
+    fn render_ref(&self,area:Rect,buf: &mut Buffer) {
+        let paragraph = Paragraph::new(Span::styled(
+            format!("Set point = {}", self.amplitude),
+            Style::default().add_modifier(Modifier::BOLD),
+        )).block(Block::bordered().title_top("Input signal"));
+        paragraph.render(area, buf);
+    }
+}
+
 impl FirstOrderSystem {
     fn new(interval: f64, a: f64, b: f64, y_0: Option<f64>) -> Self {
         Self {
@@ -127,6 +168,27 @@ impl Iterator for FirstOrderSystem {
     }
 }
 
+impl WidgetRef for &FirstOrderSystem {
+    fn render_ref(&self,area:Rect,buf: &mut Buffer) {
+        let lines = vec![
+            Line::from(Span::styled(
+                format!("a = {}", self.a),
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                format!("b = {}", self.b),
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                format!("y_k = {}", self.y_k),
+                Style::default().add_modifier(Modifier::BOLD),
+            )),
+        ];
+        let paragraph = Paragraph::new(lines).block(Block::bordered().title_top("System - First Order"));
+        paragraph.render(area, buf);
+    }
+}
+
 impl App {
     fn new() -> Self {
         let sampling = 0.1;
@@ -144,6 +206,7 @@ impl App {
             window: [0.0, window_size],
             samples_per_window,
             sampling,
+            controller: Default::default(),
         }
     }
 
@@ -194,7 +257,7 @@ impl App {
         let [line_chart, scatter] = bottom.layout(&Layout::horizontal([Constraint::Fill(1); 2]));
 
         self.render_animated_chart(frame, animated_chart);
-        render_barchart(frame, bar_chart);
+        self.render_settings(frame, bar_chart);
         render_line_chart(frame, line_chart);
         render_scatter(frame, scatter);
     }
@@ -243,45 +306,16 @@ impl App {
 
         frame.render_widget(chart, area);
     }
-}
 
-fn render_barchart(frame: &mut Frame, bar_chart: Rect) {
-    let dataset = Dataset::default()
-        .marker(symbols::Marker::HalfBlock)
-        .style(Style::new().fg(Color::Blue))
-        .graph_type(GraphType::Bar)
-        // a bell curve
-        .data(&[
-            (0., 0.4),
-            (10., 2.9),
-            (20., 13.5),
-            (30., 41.1),
-            (40., 80.1),
-            (50., 100.0),
-            (60., 80.1),
-            (70., 41.1),
-            (80., 13.5),
-            (90., 2.9),
-            (100., 0.4),
-        ]);
+    fn render_settings(&self, frame: &mut Frame, settings: Rect) {
 
-    let chart = Chart::new(vec![dataset])
-        .block(Block::bordered().title_top(Line::from("Bar chart").cyan().bold().centered()))
-        .x_axis(
-            Axis::default()
-                .style(Style::default().gray())
-                .bounds([0.0, 100.0])
-                .labels(["0".bold(), "50".into(), "100.0".bold()]),
-        )
-        .y_axis(
-            Axis::default()
-                .style(Style::default().gray())
-                .bounds([0.0, 100.0])
-                .labels(["0".bold(), "50".into(), "100.0".bold()]),
-        )
-        .hidden_legend_constraints((Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)));
+        let vertical = Layout::vertical([Constraint::Fill(1);3]);
+        let [input, output, controller] = settings.layout(&vertical);
+        frame.render_widget_ref(&self.input, input);
+        frame.render_widget_ref(&self.output, output);
+        frame.render_widget_ref(&self.controller, controller);
+    }
 
-    frame.render_widget(chart, bar_chart);
 }
 
 fn render_line_chart(frame: &mut Frame, area: Rect) {
