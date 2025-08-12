@@ -34,6 +34,7 @@ struct App {
     samples_per_window: usize,
     sampling: f64,
     controller: PIDController,
+    simulation_on: bool
 }
 
 #[derive(Clone)]
@@ -196,8 +197,8 @@ impl App {
         let samples_per_window = (window_size / sampling) as usize;
         let mut input = StepSignal::new(sampling, 15.0);
         let mut output = FirstOrderSystem::new(sampling, 0.95, 0.05, None);
-        let input_data = input.by_ref().take(1).collect::<Vec<(f64, f64)>>();
-        let output_data = output.by_ref().take(1).collect::<Vec<(f64, f64)>>();
+        let input_data = input.by_ref().take(0).collect::<Vec<(f64, f64)>>();
+        let output_data = output.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         Self {
             input,
             input_data,
@@ -207,6 +208,7 @@ impl App {
             samples_per_window,
             sampling,
             controller: Default::default(),
+            simulation_on: false,
         }
     }
 
@@ -218,16 +220,20 @@ impl App {
 
             let timeout = tick_rate.saturating_sub(last_tick.elapsed());
             if !event::poll(timeout)? {
-                self.on_tick();
+                if self.simulation_on {
+                    self.on_tick();
+                }
                 last_tick = Instant::now();
                 continue;
             }
-            if event::read()?
-                .as_key_press_event()
-                .is_some_and(|key| key.code == KeyCode::Char('q'))
-            {
-                return Ok(());
-            }
+            match event::read()?
+                .as_key_press_event() {
+                    Some(k)if k.code == KeyCode::Char('q') => return Ok(()),
+                    Some(k) if k.code == KeyCode::Char('s') => {
+                        self.simulation_on = !self.simulation_on;
+                    }
+                    None | Some(_)=> (),
+                }
         }
     }
 
