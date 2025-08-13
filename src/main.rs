@@ -17,8 +17,13 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::symbols::{self, Marker};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Axis, Block, Chart, Dataset, FrameExt, GraphType, LegendPosition, Paragraph, Widget, WidgetRef};
+use ratatui::widgets::{
+    Axis, Block, Chart, Dataset, FrameExt, GraphType, LegendPosition, Paragraph, StatefulWidgetRef,
+    Widget, WidgetRef,
+};
 use ratatui::{DefaultTerminal, Frame};
+mod utils;
+use utils::NumericInput;
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -34,7 +39,15 @@ struct App {
     samples_per_window: usize,
     sampling: f64,
     controller: PIDController,
-    simulation_on: bool
+    simulation_on: bool,
+    editing: Editing,
+}
+
+enum Editing {
+    None,
+    Input,
+    Output,
+    Controller,
 }
 
 #[derive(Clone)]
@@ -50,6 +63,7 @@ struct StepSignal {
     x: f64,
     interval: f64,
     amplitude: f64,
+    amplitude_edit: Option<NumericInput>,
 }
 
 /// Discrete-time first-order system:
@@ -72,7 +86,7 @@ struct PIDController {
 }
 
 impl WidgetRef for &PIDController {
-    fn render_ref(&self,area:Rect,buf: &mut Buffer) {
+    fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         let lines = vec![
             Line::from(Span::styled(
                 format!("P = {}", self.p),
@@ -87,8 +101,10 @@ impl WidgetRef for &PIDController {
                 Style::default().add_modifier(Modifier::BOLD),
             )),
         ];
-        let paragraph = Paragraph::new(lines
-        ).block(Block::bordered().title_top("Controller"));
+        let paragraph = Paragraph::new(lines).block(Block::bordered().title_top(Line::from(vec![
+            " Controller ".into(),
+            "<c> ".blue().bold(),
+        ])));
         paragraph.render(area, buf);
     }
 }
@@ -119,6 +135,7 @@ impl StepSignal {
             x: 0.0,
             interval,
             amplitude,
+            amplitude_edit: None,
         }
     }
 }
@@ -132,12 +149,41 @@ impl Iterator for StepSignal {
     }
 }
 
-impl WidgetRef for &StepSignal {
-    fn render_ref(&self,area:Rect,buf: &mut Buffer) {
-        let paragraph = Paragraph::new(Span::styled(
-            format!("Set point = {}", self.amplitude),
-            Style::default().add_modifier(Modifier::BOLD),
-        )).block(Block::bordered().title_top("Input signal"));
+impl StatefulWidgetRef for &StepSignal {
+    type State = Editing;
+    fn render_ref(&self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        let paragraph = if let Editing::Input = state {
+            let amplitude =
+                self.amplitude_edit
+                    .as_ref()
+                    .map_or(format!("{}", self.amplitude), |edit| {
+                        if edit.value.is_empty() {
+                            "_".to_string()
+                        } else {
+                            edit.value.clone()
+                        }
+                    });
+            Paragraph::new(
+                Line::from(vec![
+                    Span::raw("Set point = ").white(),
+                    Span::styled(amplitude, Style::default().cyan()),
+                ])
+                .add_modifier(Modifier::BOLD),
+            )
+            .block(Block::bordered().cyan().title_top(Line::from(vec![
+                " Input signal ".into(),
+                "<ESC> ".blue().bold(),
+            ])))
+        } else {
+            Paragraph::new(Span::styled(
+                format!("Set point = {}", self.amplitude),
+                Style::default().add_modifier(Modifier::BOLD),
+            ))
+            .block(Block::bordered().title_top(Line::from(vec![
+                " Input signal ".into(),
+                "<i> ".blue().bold(),
+            ])))
+        };
         paragraph.render(area, buf);
     }
 }
@@ -170,7 +216,7 @@ impl Iterator for FirstOrderSystem {
 }
 
 impl WidgetRef for &FirstOrderSystem {
-    fn render_ref(&self,area:Rect,buf: &mut Buffer) {
+    fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         let lines = vec![
             Line::from(Span::styled(
                 format!("a = {}", self.a),
@@ -185,7 +231,10 @@ impl WidgetRef for &FirstOrderSystem {
                 Style::default().add_modifier(Modifier::BOLD),
             )),
         ];
-        let paragraph = Paragraph::new(lines).block(Block::bordered().title_top("System - First Order"));
+        let paragraph = Paragraph::new(lines).block(Block::bordered().title_top(Line::from(vec![
+            " System - First Order ".into(),
+            "<m> ".blue().bold(),
+        ])));
         paragraph.render(area, buf);
     }
 }
@@ -209,6 +258,7 @@ impl App {
             sampling,
             controller: Default::default(),
             simulation_on: false,
+            editing: Editing::None,
         }
     }
 
@@ -226,14 +276,61 @@ impl App {
                 last_tick = Instant::now();
                 continue;
             }
-            match event::read()?
-                .as_key_press_event() {
-                    Some(k)if k.code == KeyCode::Char('q') => return Ok(()),
-                    Some(k) if k.code == KeyCode::Char('s') => {
-                        self.simulation_on = !self.simulation_on;
+            if let Some(k) = event::read()?.as_key_press_event() {
+                match self.editing {
+                    Editing::None => match k.code {
+                        KeyCode::Char('q') | KeyCode::Char('Q') => return Ok(()),
+                        KeyCode::Char('s') | KeyCode::Char('S') => {
+                            self.simulation_on = !self.simulation_on;
+                        }
+                        KeyCode::Char('i') | KeyCode::Char('I') => {
+                            self.editing = Editing::Input;
+                        }
+                        _ => (),
+                    },
+                    Editing::Input => {
+                        if self.input.amplitude_edit.is_none() {
+                            self.input.amplitude_edit =
+                                Some(NumericInput::from(self.input.amplitude.to_string()));
+                        }
+
+                        if let Some(edit) = self.input.amplitude_edit.as_mut() {
+                            match k.code {
+                                KeyCode::Esc => {
+                                    self.editing = Editing::None;
+                                    self.input.amplitude_edit = None;
+                                }
+                                KeyCode::Char(c) => {
+                                    edit.insert(c);
+                                }
+                                KeyCode::Backspace => {
+                                    edit.backspace();
+                                }
+                                KeyCode::Left => {
+                                    if edit.cursor > 0 {
+                                        edit.cursor -= 1;
+                                    }
+                                }
+                                KeyCode::Right => {
+                                    if edit.cursor < edit.value.len() {
+                                        edit.cursor += 1;
+                                    }
+                                }
+                                KeyCode::Enter => {
+                                    if let Some(num) = edit.as_f64() {
+                                        self.input.amplitude = num;
+                                        self.input.amplitude_edit = None;
+                                        self.editing = Editing::None;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
                     }
-                    None | Some(_)=> (),
+                    _ => (), // Editing::Output => todo!(),
+                             // Editing::Controller => todo!(),
                 }
+            }
         }
     }
 
@@ -243,7 +340,8 @@ impl App {
         }
         self.input_data.extend(self.input.by_ref().take(1));
 
-        self.output.set_input(self.input_data.last().map_or(0.0, |(_, y)| *y));
+        self.output
+            .set_input(self.input_data.last().map_or(0.0, |(_, y)| *y));
         if self.output_data.len() >= self.samples_per_window {
             self.output_data.drain(0..1);
         }
@@ -255,11 +353,11 @@ impl App {
         }
     }
 
-    fn render(&self, frame: &mut Frame) {
-        let vertical = Layout::vertical([Constraint::Fill(3),Constraint::Fill(1)]);
+    fn render(&mut self, frame: &mut Frame) {
+        let vertical = Layout::vertical([Constraint::Fill(3), Constraint::Fill(1)]);
         let [top, bottom] = frame.area().layout(&vertical);
-        let horizontal = Layout::horizontal([Constraint::Length(29),Constraint::Fill(1)]);
-        let [bar_chart,animated_chart] = top.layout(&horizontal);
+        let horizontal = Layout::horizontal([Constraint::Length(29), Constraint::Fill(1)]);
+        let [bar_chart, animated_chart] = top.layout(&horizontal);
         let [line_chart, scatter] = bottom.layout(&Layout::horizontal([Constraint::Fill(1); 2]));
 
         self.render_animated_chart(frame, animated_chart);
@@ -274,7 +372,10 @@ impl App {
                 format!("{:.1}", self.window[0]),
                 Style::default().add_modifier(Modifier::BOLD),
             ),
-            Span::raw(format!("{:.1}", f64::midpoint(self.window[0], self.window[1]))),
+            Span::raw(format!(
+                "{:.1}",
+                f64::midpoint(self.window[0], self.window[1])
+            )),
             Span::styled(
                 format!("{:.1}", self.window[1]),
                 Style::default().add_modifier(Modifier::BOLD),
@@ -294,7 +395,17 @@ impl App {
         ];
 
         let chart = Chart::new(datasets)
-            .block(Block::bordered())
+            .block(
+                Block::bordered().title_top(
+                    Line::from(vec![
+                        " Start/stop the simulation ".into(),
+                        "<s>".blue().bold(),
+                        " Quit ".into(),
+                        "<q> ".blue().bold(),
+                    ])
+                    .centered(),
+                ),
+            )
             .x_axis(
                 Axis::default()
                     .title("X Axis")
@@ -313,15 +424,13 @@ impl App {
         frame.render_widget(chart, area);
     }
 
-    fn render_settings(&self, frame: &mut Frame, settings: Rect) {
-
-        let vertical = Layout::vertical([Constraint::Fill(1);3]);
+    fn render_settings(&mut self, frame: &mut Frame, settings: Rect) {
+        let vertical = Layout::vertical([Constraint::Fill(1); 3]);
         let [input, output, controller] = settings.layout(&vertical);
-        frame.render_widget_ref(&self.input, input);
+        frame.render_stateful_widget_ref(&self.input, input, &mut self.editing);
         frame.render_widget_ref(&self.output, output);
         frame.render_widget_ref(&self.controller, controller);
     }
-
 }
 
 fn render_line_chart(frame: &mut Frame, area: Rect) {
