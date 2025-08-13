@@ -153,16 +153,10 @@ impl StatefulWidgetRef for &StepSignal {
     type State = Editing;
     fn render_ref(&self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         let paragraph = if let Editing::Input = state {
-            let amplitude =
-                self.amplitude_edit
-                    .as_ref()
-                    .map_or(format!("{}", self.amplitude), |edit| {
-                        if edit.value.is_empty() {
-                            "_".to_string()
-                        } else {
-                            edit.value.clone()
-                        }
-                    });
+            let amplitude = self
+                .amplitude_edit
+                .as_ref()
+                .map_or(format!("{}", self.amplitude), |edit| edit.value.clone());
             Paragraph::new(
                 Line::from(vec![
                     Span::raw("Set point = ").white(),
@@ -306,6 +300,9 @@ impl App {
                                 KeyCode::Backspace => {
                                     edit.backspace();
                                 }
+                                KeyCode::Delete => {
+                                    edit.delete();
+                                }
                                 KeyCode::Left => {
                                     if edit.cursor > 0 {
                                         edit.cursor -= 1;
@@ -430,6 +427,17 @@ impl App {
         frame.render_stateful_widget_ref(&self.input, input, &mut self.editing);
         frame.render_widget_ref(&self.output, output);
         frame.render_widget_ref(&self.controller, controller);
+        if let Editing::Input = self.editing {
+            frame.set_cursor_position((
+                settings.x
+                    + self.input.amplitude_edit.as_ref().map_or_else(
+                        || self.input.amplitude.to_string().len() as u16,
+                        |a| a.cursor as u16,
+                    )
+                    + 13,
+                settings.y + 1,
+            ));
+        }
     }
 }
 

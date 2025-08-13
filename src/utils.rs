@@ -23,6 +23,12 @@ impl NumericInput {
         }
     }
 
+    pub fn delete(&mut self) {
+        if self.cursor < self.value.len() {
+            self.value.remove(self.cursor);
+        }
+    }
+
     pub fn as_f64(&self) -> Option<f64> {
         self.value.parse().ok()
     }
