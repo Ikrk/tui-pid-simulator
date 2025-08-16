@@ -31,10 +31,10 @@ fn main() -> Result<()> {
 }
 
 struct App {
-    input: StepSignal,
-    input_data: Vec<(f64, f64)>,
-    output: FirstOrderSystem,
-    output_data: Vec<(f64, f64)>,
+    referrence: StepSignal,
+    referrence_data: Vec<(f64, f64)>,
+    plant: FirstOrderSystem,
+    plant_data: Vec<(f64, f64)>,
     window: [f64; 2],
     samples_per_window: usize,
     sampling: f64,
@@ -42,8 +42,10 @@ struct App {
     controller_data: Vec<(f64, f64)>,
     simulation_on: bool,
     editing: Editing,
+    is_controler_active: bool,
 }
 
+#[derive(Clone)]
 enum Editing {
     None,
     Input,
@@ -141,6 +143,15 @@ impl PIDController {
         self.r = r;
         // self.x = 0.0; // reset time when set point changes
     }
+    /// Reset the controller to the set point value which effectively disables the controller.
+    pub fn reset_to_setpoint(&mut self, u: f64) {
+        self.u.1 = u;
+        self.u.2 = u;
+        self.set_set_point(u);
+        self.e.1 = 0.0;
+        self.e.2 = 0.0;
+        self.set_plant_output(u);
+    }
 }
 
 impl Iterator for PIDController {
@@ -164,9 +175,19 @@ impl Iterator for PIDController {
     }
 }
 
-impl WidgetRef for &PIDController {
-    fn render_ref(&self, area: Rect, buf: &mut Buffer) {
-        let lines = vec![
+impl StatefulWidgetRef for &PIDController {
+    type State = (bool, Editing);
+    fn render_ref(&self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        let mut lines = if state.0 {
+            vec![Line::from(
+                Span::raw("ENABLED").green().add_modifier(Modifier::BOLD),
+            )]
+        } else {
+            vec![Line::from(
+                Span::raw("DISABLED").red().add_modifier(Modifier::BOLD),
+            )]
+        };
+        let lines_pid = vec![
             Line::from(Span::styled(
                 format!("P = {}", self.Kp),
                 Style::default().add_modifier(Modifier::BOLD),
@@ -188,6 +209,7 @@ impl WidgetRef for &PIDController {
                 Style::default().add_modifier(Modifier::BOLD),
             )),
         ];
+        lines.extend(lines_pid);
         let paragraph = Paragraph::new(lines).block(Block::bordered().title_top(Line::from(vec![
             " Controller ".into(),
             "<c> ".blue().bold(),
@@ -334,10 +356,10 @@ impl App {
         let output_data = output.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         let controller_data = controller.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         Self {
-            input,
-            input_data,
-            output,
-            output_data,
+            referrence: input,
+            referrence_data: input_data,
+            plant: output,
+            plant_data: output_data,
             window: [0.0, window_size],
             samples_per_window,
             sampling,
@@ -345,6 +367,7 @@ impl App {
             simulation_on: false,
             editing: Editing::None,
             controller_data: controller_data,
+            is_controler_active: true,
         }
     }
 
@@ -372,19 +395,22 @@ impl App {
                         KeyCode::Char('i') | KeyCode::Char('I') => {
                             self.editing = Editing::Input;
                         }
+                        KeyCode::Char('c') | KeyCode::Char('C') => {
+                            self.is_controler_active = !self.is_controler_active;
+                        }
                         _ => (),
                     },
                     Editing::Input => {
-                        if self.input.amplitude_edit.is_none() {
-                            self.input.amplitude_edit =
-                                Some(NumericInput::from(self.input.amplitude.to_string()));
+                        if self.referrence.amplitude_edit.is_none() {
+                            self.referrence.amplitude_edit =
+                                Some(NumericInput::from(self.referrence.amplitude.to_string()));
                         }
 
-                        if let Some(edit) = self.input.amplitude_edit.as_mut() {
+                        if let Some(edit) = self.referrence.amplitude_edit.as_mut() {
                             match k.code {
                                 KeyCode::Esc => {
                                     self.editing = Editing::None;
-                                    self.input.amplitude_edit = None;
+                                    self.referrence.amplitude_edit = None;
                                 }
                                 KeyCode::Char(c) => {
                                     edit.insert(c);
@@ -407,8 +433,8 @@ impl App {
                                 }
                                 KeyCode::Enter => {
                                     if let Some(num) = edit.as_f64() {
-                                        self.input.amplitude = num;
-                                        self.input.amplitude_edit = None;
+                                        self.referrence.amplitude = num;
+                                        self.referrence.amplitude_edit = None;
                                         self.editing = Editing::None;
                                     }
                                 }
@@ -424,29 +450,40 @@ impl App {
     }
 
     fn on_tick(&mut self) {
-        if self.input_data.len() >= self.samples_per_window {
-            self.input_data.drain(0..1);
+        if self.referrence_data.len() >= self.samples_per_window {
+            self.referrence_data.drain(0..1);
         }
-        self.input_data.extend(self.input.by_ref().take(1));
+        self.referrence_data
+            .extend(self.referrence.by_ref().take(1));
 
-        self.controller
-            .set_set_point(self.input_data.last().map_or(0.0, |(_, y)| *y));
-        if self.controller_data.len() >= self.samples_per_window {
-            self.controller_data.drain(0..1);
-        }
-        self.controller_data.extend(self.controller.by_ref().take(1));
+        if self.is_controler_active {
+            self.controller
+                .set_set_point(self.referrence_data.last().map_or(0.0, |(_, y)| *y));
+            if self.controller_data.len() >= self.samples_per_window {
+                self.controller_data.drain(0..1);
+            }
+            self.controller_data
+                .extend(self.controller.by_ref().take(1));
 
-        self.output
-            .set_input(self.controller_data.last().map_or(0.0, |(_, y)| *y));
-        if self.output_data.len() >= self.samples_per_window {
-            self.output_data.drain(0..1);
-        }
-        self.output_data.extend(self.output.by_ref().take(1));
+            self.plant
+                .set_input(self.controller_data.last().map_or(0.0, |(_, y)| *y));
+            if self.plant_data.len() >= self.samples_per_window {
+                self.plant_data.drain(0..1);
+            }
+            self.plant_data.extend(self.plant.by_ref().take(1));
 
-        self.controller
-            .set_plant_output(self.output_data.last().map_or(0.0, |(_, y)| *y));
-
-        if self.output_data.len() >= self.samples_per_window {
+            self.controller
+                .set_plant_output(self.plant_data.last().map_or(0.0, |(_, y)| *y));
+        } else {
+            let set_point = self.referrence_data.last().map_or(0.0, |(_, y)| *y);
+            self.controller.reset_to_setpoint(set_point);
+            self.plant.set_input(set_point);
+            if self.plant_data.len() >= self.samples_per_window {
+                self.plant_data.drain(0..1);
+            }
+            self.plant_data.extend(self.plant.by_ref().take(1));
+        };
+        if self.plant_data.len() >= self.samples_per_window {
             self.window[0] += self.sampling;
             self.window[1] += self.sampling;
         }
@@ -485,12 +522,12 @@ impl App {
                 .name("input")
                 .marker(symbols::Marker::Dot)
                 .style(Style::default().fg(Color::Cyan))
-                .data(&self.input_data),
+                .data(&self.referrence_data),
             Dataset::default()
                 .name("output")
                 .marker(symbols::Marker::Dot)
                 .style(Style::default().fg(Color::Yellow))
-                .data(&self.output_data),
+                .data(&self.plant_data),
         ];
 
         let chart = Chart::new(datasets)
@@ -526,14 +563,15 @@ impl App {
     fn render_settings(&mut self, frame: &mut Frame, settings: Rect) {
         let vertical = Layout::vertical([Constraint::Fill(1); 3]);
         let [input, output, controller] = settings.layout(&vertical);
-        frame.render_stateful_widget_ref(&self.input, input, &mut self.editing);
-        frame.render_widget_ref(&self.output, output);
-        frame.render_widget_ref(&self.controller, controller);
+        frame.render_stateful_widget_ref(&self.referrence, input, &mut self.editing);
+        frame.render_widget_ref(&self.plant, output);
+        let controller_state = &mut (self.is_controler_active, self.editing.clone());
+        frame.render_stateful_widget_ref(&self.controller, controller, controller_state);
         if let Editing::Input = self.editing {
             frame.set_cursor_position((
                 settings.x
-                    + self.input.amplitude_edit.as_ref().map_or_else(
-                        || self.input.amplitude.to_string().len() as u16,
+                    + self.referrence.amplitude_edit.as_ref().map_or_else(
+                        || self.referrence.amplitude.to_string().len() as u16,
                         |a| a.cursor as u16,
                     )
                     + 13,
