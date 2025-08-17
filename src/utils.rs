@@ -1,5 +1,5 @@
 #[derive(Default, Clone)]
-pub(crate) struct NumericInput {
+pub struct NumericInput {
     pub value: String, // text buffer
     pub cursor: usize, // optional if you want editing in the middle
 }
