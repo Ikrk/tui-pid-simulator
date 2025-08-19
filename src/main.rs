@@ -6,19 +6,18 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::symbols::{self, Marker};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{
-    Axis, Block, Chart, Dataset, FrameExt, GraphType, LegendPosition,
-};
+use ratatui::widgets::{Axis, Block, Chart, Dataset, FrameExt, GraphType, LegendPosition};
 use ratatui::{DefaultTerminal, Frame};
 mod utils;
 use utils::NumericInput;
+mod controllers;
 mod inputs;
 mod plants;
-mod controllers;
+pub use controllers::pid_0::PIDController;
 pub use inputs::step::StepSignal;
 pub use plants::first_order::FirstOrderSystem;
-pub use controllers::pid_0::PIDController;
 
+use crate::plants::second_order::SecondOrderSystem;
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -28,7 +27,7 @@ fn main() -> Result<()> {
 struct App {
     referrence: StepSignal,
     referrence_data: Vec<(f64, f64)>,
-    plant: FirstOrderSystem,
+    plant: SecondOrderSystem,
     plant_data: Vec<(f64, f64)>,
     window: [f64; 2],
     samples_per_window: usize,
@@ -54,8 +53,16 @@ impl App {
         let window_size = 20.0;
         let samples_per_window = (window_size / sampling) as usize;
         let mut input = StepSignal::new(sampling, 15.0);
-        let mut output = FirstOrderSystem::new(sampling, 0.95, 0.05, None);
-        let mut controller = PIDController::new(3.0, 1.9, 0.0, 10.0, sampling);
+        // let mut output = FirstOrderSystem::new(sampling, 0.95, 0.05, None);
+        let mut output = SecondOrderSystem::new(
+            0.5, // damping ratio
+            1.0, // natural frequency
+            sampling,
+            true, // prewarp
+            None, // initial conditions
+        );
+        // let mut controller = PIDController::new(3.0, 1.9, 0.0, 10.0, sampling);
+        let mut controller = PIDController::new(0.8, 2.0, 2.0, 5.0, sampling);
         let input_data = input.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         let output_data = output.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         let controller_data = controller.by_ref().take(0).collect::<Vec<(f64, f64)>>();
@@ -181,6 +188,12 @@ impl App {
         } else {
             let set_point = self.referrence_data.last().map_or(0.0, |(_, y)| *y);
             self.controller.reset_to_setpoint(set_point);
+            if self.controller_data.len() >= self.samples_per_window {
+                self.controller_data.drain(0..1);
+            }
+            self.controller_data
+                .extend(self.controller.by_ref().take(1));
+
             self.plant.set_input(set_point);
             if self.plant_data.len() >= self.samples_per_window {
                 self.plant_data.drain(0..1);
@@ -194,15 +207,16 @@ impl App {
     }
 
     fn render(&mut self, frame: &mut Frame) {
-        let vertical = Layout::vertical([Constraint::Fill(3), Constraint::Fill(1)]);
+        let vertical = Layout::vertical([Constraint::Fill(3), Constraint::Fill(2)]);
         let [top, bottom] = frame.area().layout(&vertical);
         let horizontal = Layout::horizontal([Constraint::Length(29), Constraint::Fill(1)]);
         let [bar_chart, animated_chart] = top.layout(&horizontal);
-        let [line_chart, scatter] = bottom.layout(&Layout::horizontal([Constraint::Fill(1); 2]));
+        let [controller_chart, scatter] =
+            bottom.layout(&Layout::horizontal([Constraint::Fill(1); 2]));
 
         self.render_animated_chart(frame, animated_chart);
         self.render_settings(frame, bar_chart);
-        render_line_chart(frame, line_chart);
+        self.render_controller_chart(frame, controller_chart);
         render_scatter(frame, scatter);
     }
 
@@ -283,38 +297,81 @@ impl App {
             ));
         }
     }
-}
 
-fn render_line_chart(frame: &mut Frame, area: Rect) {
-    let datasets = vec![
-        Dataset::default()
-            .name("Line from only 2 points".italic())
-            .marker(symbols::Marker::Braille)
-            .style(Style::default().fg(Color::Yellow))
-            .graph_type(GraphType::Line)
-            .data(&[(1., 1.), (4., 4.)]),
-    ];
+    fn render_controller_chart(&self, frame: &mut Frame, area: Rect) {
+        let x_labels = vec![
+            Span::styled(
+                format!("{:.1}", self.window[0]),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(format!(
+                "{:.1}",
+                f64::midpoint(self.window[0], self.window[1])
+            )),
+            Span::styled(
+                format!("{:.1}", self.window[1]),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+        ];
+        let datasets = vec![
+            Dataset::default()
+                .name("controller output")
+                .marker(symbols::Marker::Dot)
+                .style(Style::default().fg(Color::Yellow))
+                .data(&self.controller_data),
+        ];
 
-    let chart = Chart::new(datasets)
-        .block(Block::bordered().title(Line::from("Line chart").cyan().bold().centered()))
-        .x_axis(
-            Axis::default()
-                .title("X Axis")
-                .style(Style::default().gray())
-                .bounds([0.0, 5.0])
-                .labels(["0".bold(), "2.5".into(), "5.0".bold()]),
-        )
-        .y_axis(
-            Axis::default()
-                .title("Y Axis")
-                .style(Style::default().gray())
-                .bounds([0.0, 5.0])
-                .labels(["0".bold(), "2.5".into(), "5.0".bold()]),
-        )
-        .legend_position(Some(LegendPosition::TopLeft))
-        .hidden_legend_constraints((Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)));
+        let chart = Chart::new(datasets)
+            .block(
+                Block::bordered()
+                    .title_top(Line::from(vec![" Controller output ".into()]).centered()),
+            )
+            .x_axis(
+                Axis::default()
+                    .title("X Axis")
+                    .style(Style::default().fg(Color::Gray))
+                    .labels(x_labels)
+                    .bounds(self.window),
+            )
+            .y_axis(
+                Axis::default()
+                    .title("Y Axis")
+                    .style(Style::default().fg(Color::Gray))
+                    .labels(["-30".bold(), "0".into(), "30".bold()])
+                    .bounds([-30.0, 30.0]),
+            );
 
-    frame.render_widget(chart, area);
+        frame.render_widget(chart, area);
+        // let datasets = vec![
+        //     Dataset::default()
+        //         .name("Line from only 2 points".italic())
+        //         .marker(symbols::Marker::Braille)
+        //         .style(Style::default().fg(Color::Yellow))
+        //         .graph_type(GraphType::Line)
+        //         .data(&[(1., 1.), (4., 4.)]),
+        // ];
+
+        // let chart = Chart::new(datasets)
+        //     .block(Block::bordered().title(Line::from("Line chart").cyan().bold().centered()))
+        //     .x_axis(
+        //         Axis::default()
+        //             .title("X Axis")
+        //             .style(Style::default().gray())
+        //             .bounds([0.0, 5.0])
+        //             .labels(["0".bold(), "2.5".into(), "5.0".bold()]),
+        //     )
+        //     .y_axis(
+        //         Axis::default()
+        //             .title("Y Axis")
+        //             .style(Style::default().gray())
+        //             .bounds([0.0, 5.0])
+        //             .labels(["0".bold(), "2.5".into(), "5.0".bold()]),
+        //     )
+        //     .legend_position(Some(LegendPosition::TopLeft))
+        //     .hidden_legend_constraints((Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)));
+
+        // frame.render_widget(chart, area);
+    }
 }
 
 fn render_scatter(frame: &mut Frame, area: Rect) {
