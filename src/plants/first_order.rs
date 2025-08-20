@@ -63,8 +63,8 @@ impl WidgetRef for &FirstOrderSystem {
             )),
         ];
         let paragraph = Paragraph::new(lines).block(Block::bordered().title_top(Line::from(vec![
-            " System - First Order ".into(),
-            "<m> ".blue().bold(),
+            " Plant - First Order ".into(),
+            "<p> ".blue().bold(),
         ])));
         paragraph.render(area, buf);
     }

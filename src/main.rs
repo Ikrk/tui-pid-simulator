@@ -42,8 +42,8 @@ struct App {
 #[derive(Clone)]
 pub enum Editing {
     None,
-    Input,
-    Output,
+    Reference,
+    Plant,
     Controller,
 }
 
@@ -104,20 +104,68 @@ impl App {
                             self.simulation_on = !self.simulation_on;
                         }
                         KeyCode::Char('i') | KeyCode::Char('I') => {
-                            self.editing = Editing::Input;
+                            self.editing = Editing::Reference;
                         }
                         KeyCode::Char('c') | KeyCode::Char('C') => {
                             self.is_controler_active = !self.is_controler_active;
                         }
                         _ => (),
                     },
-                    Editing::Input => {
+                    Editing::Reference => {
                         if self.referrence.amplitude_edit.is_none() {
                             self.referrence.amplitude_edit =
                                 Some(NumericInput::from(self.referrence.amplitude.to_string()));
                         }
 
                         if let Some(edit) = self.referrence.amplitude_edit.as_mut() {
+                            match k.code {
+                                KeyCode::Esc => {
+                                    self.editing = Editing::None;
+                                    self.referrence.amplitude_edit = None;
+                                }
+                                KeyCode::Char(c) => {
+                                    edit.insert(c);
+                                }
+                                KeyCode::Backspace => {
+                                    edit.backspace();
+                                }
+                                KeyCode::Delete => {
+                                    edit.delete();
+                                }
+                                KeyCode::Left => {
+                                    if edit.cursor > 0 {
+                                        edit.cursor -= 1;
+                                    }
+                                }
+                                KeyCode::Right => {
+                                    if edit.cursor < edit.value.len() {
+                                        edit.cursor += 1;
+                                    }
+                                }
+                                KeyCode::Enter => {
+                                    if let Some(num) = edit.as_f64() {
+                                        self.referrence.amplitude = num;
+                                        self.referrence.amplitude_edit = None;
+                                        self.editing = Editing::None;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    Editing::Plant => {
+                        if self.plant.zeta_edit.is_none() {
+                            self.plant.zeta_edit =
+                                Some(NumericInput::from(self.plant.get_zeta().to_string()));
+                        }
+
+                        if self.plant.wm_edit.is_none() {
+                            self.plant.wm_edit =
+                                Some(NumericInput::from(self.plant.get_wn().to_string()));
+                        }
+
+                        // TODO continue here and handle editing for each plant parameter
+                        if let Some(edit) = self.plant.zeta_edit.as_mut() {
                             match k.code {
                                 KeyCode::Esc => {
                                     self.editing = Editing::None;
@@ -235,6 +283,20 @@ impl App {
                 Style::default().add_modifier(Modifier::BOLD),
             ),
         ];
+        let y_labels = vec![
+            Span::styled(
+                format!("{:.1}", -20.0),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(format!(
+                "{:.1}",
+                0.0
+            )),
+            Span::styled(
+                format!("{:.1}", 20.0),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+        ];
         let datasets = vec![
             Dataset::default()
                 .name("input")
@@ -243,7 +305,7 @@ impl App {
                 .data(&self.referrence_data),
             Dataset::default()
                 .name("output")
-                .marker(symbols::Marker::Dot)
+                .marker(symbols::Marker::Braille)
                 .style(Style::default().fg(Color::Yellow))
                 .data(&self.plant_data),
         ];
@@ -271,7 +333,8 @@ impl App {
                 Axis::default()
                     .title("Y Axis")
                     .style(Style::default().fg(Color::Gray))
-                    .labels(["-20".bold(), "0".into(), "20".bold()])
+                    // .labels(["-20".bold(), "0".into(), "20".bold()])
+                    .labels(y_labels)
                     .bounds([-20.0, 20.0]),
             );
 
@@ -285,7 +348,7 @@ impl App {
         frame.render_widget_ref(&self.plant, output);
         let controller_state = &mut (self.is_controler_active, self.editing.clone());
         frame.render_stateful_widget_ref(&self.controller, controller, controller_state);
-        if let Editing::Input = self.editing {
+        if let Editing::Reference = self.editing {
             frame.set_cursor_position((
                 settings.x
                     + self.referrence.amplitude_edit.as_ref().map_or_else(
@@ -316,7 +379,7 @@ impl App {
         let datasets = vec![
             Dataset::default()
                 .name("controller output")
-                .marker(symbols::Marker::Dot)
+                .marker(symbols::Marker::Braille)
                 .style(Style::default().fg(Color::Yellow))
                 .data(&self.controller_data),
         ];

@@ -38,9 +38,9 @@ impl Iterator for StepSignal {
 }
 
 impl StatefulWidgetRef for &StepSignal {
-    type State = Editing;
+   type State = Editing;
     fn render_ref(&self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        let paragraph = if let Editing::Input = state {
+        let paragraph = if let Editing::Reference = state {
             let amplitude = self
                 .amplitude_edit
                 .as_ref()
