@@ -17,7 +17,7 @@ pub use controllers::pid_0::PIDController;
 pub use inputs::step::StepSignal;
 pub use plants::first_order::FirstOrderSystem;
 
-use crate::plants::second_order::SecondOrderSystem;
+use crate::plants::second_order::{SecondOrderEdit, SecondOrderSystem};
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -57,8 +57,7 @@ impl App {
         let mut output = SecondOrderSystem::new(
             0.5, // damping ratio
             1.0, // natural frequency
-            sampling,
-            true, // prewarp
+            sampling, true, // prewarp
             None, // initial conditions
         );
         // let mut controller = PIDController::new(3.0, 1.9, 0.0, 10.0, sampling);
@@ -105,6 +104,12 @@ impl App {
                         }
                         KeyCode::Char('i') | KeyCode::Char('I') => {
                             self.editing = Editing::Reference;
+                        }
+                        KeyCode::Char('p') | KeyCode::Char('P') => {
+                            self.editing = Editing::Plant;
+                            self.plant.edit = Some(SecondOrderEdit::Zeta(NumericInput::from(
+                                self.plant.get_zeta().to_string(),
+                            )));
                         }
                         KeyCode::Char('c') | KeyCode::Char('C') => {
                             self.is_controler_active = !self.is_controler_active;
@@ -154,55 +159,68 @@ impl App {
                         }
                     }
                     Editing::Plant => {
-                        if self.plant.zeta_edit.is_none() {
-                            self.plant.zeta_edit =
-                                Some(NumericInput::from(self.plant.get_zeta().to_string()));
-                        }
+                        // ensure one of the edits is initialized
+                        let edit = self.plant.edit.get_or_insert(SecondOrderEdit::Zeta(
+                            NumericInput::from(self.plant.get_zeta().to_string()),
+                        ));
 
-                        if self.plant.wm_edit.is_none() {
-                            self.plant.wm_edit =
-                                Some(NumericInput::from(self.plant.get_wn().to_string()));
-                        }
+                        let input: &mut NumericInput = match edit {
+                            plants::second_order::SecondOrderEdit::Zeta(e) => e,
+                            plants::second_order::SecondOrderEdit::Wn(e) => e,
+                        };
 
-                        // TODO continue here and handle editing for each plant parameter
-                        if let Some(edit) = self.plant.zeta_edit.as_mut() {
-                            match k.code {
-                                KeyCode::Esc => {
-                                    self.editing = Editing::None;
-                                    self.referrence.amplitude_edit = None;
-                                }
-                                KeyCode::Char(c) => {
-                                    edit.insert(c);
-                                }
-                                KeyCode::Backspace => {
-                                    edit.backspace();
-                                }
-                                KeyCode::Delete => {
-                                    edit.delete();
-                                }
-                                KeyCode::Left => {
-                                    if edit.cursor > 0 {
-                                        edit.cursor -= 1;
-                                    }
-                                }
-                                KeyCode::Right => {
-                                    if edit.cursor < edit.value.len() {
-                                        edit.cursor += 1;
-                                    }
-                                }
-                                KeyCode::Enter => {
-                                    if let Some(num) = edit.as_f64() {
-                                        self.referrence.amplitude = num;
-                                        self.referrence.amplitude_edit = None;
-                                        self.editing = Editing::None;
-                                    }
-                                }
-                                _ => {}
+                        match k.code {
+                            KeyCode::Esc => {
+                                self.editing = Editing::None;
+                                self.plant.edit = None;
                             }
+                            KeyCode::Char(c) => {
+                                input.insert(c);
+                            }
+                            KeyCode::Backspace => {
+                                input.backspace();
+                            }
+                            KeyCode::Delete => {
+                                input.delete();
+                            }
+                            KeyCode::Left => {
+                                if input.cursor > 0 {
+                                    input.cursor -= 1;
+                                }
+                            }
+                            KeyCode::Right => {
+                                if input.cursor < input.value.len() {
+                                    input.cursor += 1;
+                                }
+                            }
+                            KeyCode::Down | KeyCode::Up | KeyCode::Enter => {
+                                if let Some(num) = input.as_f64() {
+                                    match self.plant.edit.as_ref().unwrap() {
+                                        plants::second_order::SecondOrderEdit::Zeta(_) => {
+                                            self.plant.set_zeta(num);
+                                            self.plant.edit = Some(SecondOrderEdit::Wn(
+                                                NumericInput::from(self.plant.get_wn().to_string()),
+                                            ));
+                                        }
+                                        plants::second_order::SecondOrderEdit::Wn(_) => {
+                                            self.plant.set_wn(num);
+                                            self.plant.edit =
+                                                Some(SecondOrderEdit::Zeta(NumericInput::from(
+                                                    self.plant.get_zeta().to_string(),
+                                                )));
+                                        }
+                                    }
+                                }
+                                if k.code == KeyCode::Enter {
+                                    self.editing = Editing::None;
+                                    self.plant.edit = None;
+                                }
+                            }
+                            _ => {}
                         }
                     }
-                    _ => (), // Editing::Output => todo!(),
-                             // Editing::Controller => todo!(),
+                    _ => (),
+                    // Editing::Controller => todo!(),
                 }
             }
         }
@@ -288,10 +306,7 @@ impl App {
                 format!("{:.1}", -20.0),
                 Style::default().add_modifier(Modifier::BOLD),
             ),
-            Span::raw(format!(
-                "{:.1}",
-                0.0
-            )),
+            Span::raw(format!("{:.1}", 0.0)),
             Span::styled(
                 format!("{:.1}", 20.0),
                 Style::default().add_modifier(Modifier::BOLD),
@@ -345,7 +360,7 @@ impl App {
         let vertical = Layout::vertical([Constraint::Fill(1); 3]);
         let [input, output, controller] = settings.layout(&vertical);
         frame.render_stateful_widget_ref(&self.referrence, input, &mut self.editing);
-        frame.render_widget_ref(&self.plant, output);
+        frame.render_stateful_widget_ref(&self.plant, output, &mut self.editing);
         let controller_state = &mut (self.is_controler_active, self.editing.clone());
         frame.render_stateful_widget_ref(&self.controller, controller, controller_state);
         if let Editing::Reference = self.editing {

@@ -3,8 +3,9 @@ use ratatui::layout::Rect;
 use ratatui::style::Modifier;
 use ratatui::style::{Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph, Widget, WidgetRef};
+use ratatui::widgets::{Block, Paragraph, StatefulWidgetRef, Widget, WidgetRef};
 
+use crate::Editing;
 use crate::utils::NumericInput;
 
 /// Discrete-time second-order system:
@@ -25,8 +26,13 @@ pub struct SecondOrderSystem {
     y_k: (f64, f64),    // y1, y2
     zeta: f64,          // damping ratio
     wn: f64,            // natural frequency
-    pub zeta_edit: Option<NumericInput>,
-    pub wm_edit: Option<NumericInput>,
+    pub edit: Option<SecondOrderEdit>,
+}
+
+#[derive(Clone)]
+pub enum SecondOrderEdit {
+    Zeta(NumericInput),
+    Wn(NumericInput),
 }
 
 impl SecondOrderSystem {
@@ -41,8 +47,7 @@ impl SecondOrderSystem {
             y_k: y_0_1.unwrap_or((0.0, 0.0)),
             zeta,
             wn,
-            zeta_edit: None,
-            wm_edit: None,
+            edit: None,
         };
         plant.update_coefficients(prewarp);
         plant
@@ -106,26 +111,71 @@ impl Iterator for SecondOrderSystem {
     }
 }
 
-impl WidgetRef for &SecondOrderSystem {
-    fn render_ref(&self, area: Rect, buf: &mut Buffer) {
-        let lines = vec![
-            Line::from(Span::styled(
-                format!("zeta = {}", self.zeta),
-                Style::default().add_modifier(Modifier::BOLD),
-            )),
-            Line::from(Span::styled(
-                format!("wn = {}", self.wn),
-                Style::default().add_modifier(Modifier::BOLD),
-            )),
-            Line::from(Span::styled(
-                format!("y_k = ({:.2}, {:.2})", self.y_k.0, self.y_k.1),
-                Style::default().add_modifier(Modifier::BOLD),
-            )),
-        ];
-        let paragraph = Paragraph::new(lines).block(Block::bordered().title_top(Line::from(vec![
-            " Plant - Second Order ".into(),
-            "<p> ".blue().bold(),
-        ])));
+impl StatefulWidgetRef for &SecondOrderSystem {
+    type State = Editing;
+    fn render_ref(&self, area: Rect, buf: &mut Buffer, _state: &mut Self::State) {
+        let paragraph = if let Some(input) = self.edit.as_ref() {
+            let (zeta_line, wn_line) = match input {
+                SecondOrderEdit::Zeta(zeta) => {
+                    (
+                        Line::from(vec![
+                            Span::raw("zeta = ").white(),
+                            Span::styled(zeta.value.clone(), Style::default().cyan()),
+                        ]),
+                        Line::from(Span::styled(
+                            format!("wn = {}", self.wn),
+                            Style::default(),
+                        )).white()
+                    )
+                },
+                SecondOrderEdit::Wn(wn) => {
+                    (
+                        Line::from(Span::styled(
+                            format!("zeta = {}", self.zeta),
+                            Style::default(),
+                        )).white(),
+
+                        Line::from(vec![
+                            Span::raw("wn = ").white(),
+                            Span::styled(wn.value.clone(), Style::default().cyan()),
+                        ])
+                    )
+                },
+            };
+            let lines = vec![
+                zeta_line.add_modifier(Modifier::BOLD),
+                wn_line.add_modifier(Modifier::BOLD),
+                Line::from(Span::styled(
+                    format!("y_k = ({:.2}, {:.2})", self.y_k.0, self.y_k.1),
+                    Style::default().add_modifier(Modifier::BOLD).gray(),
+                )),
+            ];
+            Paragraph::new(lines).add_modifier(Modifier::BOLD).block(
+                Block::bordered().cyan().title_top(Line::from(vec![
+                    " Plant - Second Order ".into(),
+                    "<ESC> ".blue().bold(),
+                ])),
+            )
+        } else {
+            let lines = vec![
+                Line::from(Span::styled(
+                    format!("zeta = {}", self.zeta),
+                    Style::default().add_modifier(Modifier::BOLD),
+                )),
+                Line::from(Span::styled(
+                    format!("wn = {}", self.wn),
+                    Style::default().add_modifier(Modifier::BOLD),
+                )),
+                Line::from(Span::styled(
+                    format!("y_k = ({:.2}, {:.2})", self.y_k.0, self.y_k.1),
+                    Style::default().add_modifier(Modifier::BOLD),
+                )),
+            ];
+            Paragraph::new(lines).block(Block::bordered().title_top(Line::from(vec![
+                " Plant - Second Order ".into(),
+                "<p> ".blue().bold(),
+            ])))
+        };
         paragraph.render(area, buf);
     }
 }
