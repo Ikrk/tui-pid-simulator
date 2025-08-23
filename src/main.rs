@@ -358,21 +358,44 @@ impl App {
 
     fn render_settings(&mut self, frame: &mut Frame, settings: Rect) {
         let vertical = Layout::vertical([Constraint::Fill(1); 3]);
-        let [input, output, controller] = settings.layout(&vertical);
-        frame.render_stateful_widget_ref(&self.referrence, input, &mut self.editing);
-        frame.render_stateful_widget_ref(&self.plant, output, &mut self.editing);
+        let [reference, plant, controller] = settings.layout(&vertical);
+        frame.render_stateful_widget_ref(&self.referrence, reference, &mut self.editing);
+        frame.render_stateful_widget_ref(&self.plant, plant, &mut self.editing);
         let controller_state = &mut (self.is_controler_active, self.editing.clone());
         frame.render_stateful_widget_ref(&self.controller, controller, controller_state);
         if let Editing::Reference = self.editing {
             frame.set_cursor_position((
-                settings.x
+                reference.x
                     + self.referrence.amplitude_edit.as_ref().map_or_else(
                         || self.referrence.amplitude.to_string().len() as u16,
                         |a| a.cursor as u16,
                     )
                     + 13,
-                settings.y + 1,
+                reference.y + 1,
             ));
+        }
+        match self.editing {
+            Editing::Reference => frame.set_cursor_position((
+                reference.x
+                    + self.referrence.amplitude_edit.as_ref().map_or_else(
+                        || self.referrence.amplitude.to_string().len() as u16,
+                        |a| a.cursor as u16,
+                    )
+                    + 13,
+                reference.y + 1,
+            )),
+            Editing::Plant => {
+                let x_offset = match self.plant.edit.as_ref().unwrap() {
+                    SecondOrderEdit::Zeta(e) => e.cursor as u16 + 8,
+                    SecondOrderEdit::Wn(e) => e.cursor as u16 + 6,
+                };
+                let y_offset = match self.plant.edit.as_ref().unwrap() {
+                    SecondOrderEdit::Zeta(_) => 1,
+                    SecondOrderEdit::Wn(_) => 2,
+                };
+                frame.set_cursor_position((plant.x + x_offset, plant.y + y_offset))
+            }
+            _ => (),
         }
     }
 
