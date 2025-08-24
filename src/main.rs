@@ -6,7 +6,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::symbols::{self, Marker};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Axis, Block, Chart, Dataset, FrameExt, GraphType, LegendPosition};
+use ratatui::widgets::{Axis, Block, Chart, Dataset, FrameExt, GraphType};
 use ratatui::{DefaultTerminal, Frame};
 mod utils;
 use utils::NumericInput;
@@ -18,6 +18,7 @@ pub use inputs::step::StepSignal;
 pub use plants::first_order::FirstOrderSystem;
 
 use crate::plants::second_order::{SecondOrderEdit, SecondOrderSystem};
+use crate::plants::Plant;
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -159,65 +160,7 @@ impl App {
                         }
                     }
                     Editing::Plant => {
-                        // ensure one of the edits is initialized
-                        let edit = self.plant.edit.get_or_insert(SecondOrderEdit::Zeta(
-                            NumericInput::from(self.plant.get_zeta().to_string()),
-                        ));
-
-                        let input: &mut NumericInput = match edit {
-                            plants::second_order::SecondOrderEdit::Zeta(e) => e,
-                            plants::second_order::SecondOrderEdit::Wn(e) => e,
-                        };
-
-                        match k.code {
-                            KeyCode::Esc => {
-                                self.editing = Editing::None;
-                                self.plant.edit = None;
-                            }
-                            KeyCode::Char(c) => {
-                                input.insert(c);
-                            }
-                            KeyCode::Backspace => {
-                                input.backspace();
-                            }
-                            KeyCode::Delete => {
-                                input.delete();
-                            }
-                            KeyCode::Left => {
-                                if input.cursor > 0 {
-                                    input.cursor -= 1;
-                                }
-                            }
-                            KeyCode::Right => {
-                                if input.cursor < input.value.len() {
-                                    input.cursor += 1;
-                                }
-                            }
-                            KeyCode::Down | KeyCode::Up | KeyCode::Enter => {
-                                if let Some(num) = input.as_f64() {
-                                    match self.plant.edit.as_ref().unwrap() {
-                                        plants::second_order::SecondOrderEdit::Zeta(_) => {
-                                            self.plant.set_zeta(num);
-                                            self.plant.edit = Some(SecondOrderEdit::Wn(
-                                                NumericInput::from(self.plant.get_wn().to_string()),
-                                            ));
-                                        }
-                                        plants::second_order::SecondOrderEdit::Wn(_) => {
-                                            self.plant.set_wn(num);
-                                            self.plant.edit =
-                                                Some(SecondOrderEdit::Zeta(NumericInput::from(
-                                                    self.plant.get_zeta().to_string(),
-                                                )));
-                                        }
-                                    }
-                                }
-                                if k.code == KeyCode::Enter {
-                                    self.editing = Editing::None;
-                                    self.plant.edit = None;
-                                }
-                            }
-                            _ => {}
-                        }
+                        self.plant.edit(&mut self.editing, k);
                     }
                     _ => (),
                     // Editing::Controller => todo!(),
@@ -360,20 +303,9 @@ impl App {
         let vertical = Layout::vertical([Constraint::Fill(1); 3]);
         let [reference, plant, controller] = settings.layout(&vertical);
         frame.render_stateful_widget_ref(&self.referrence, reference, &mut self.editing);
-        frame.render_stateful_widget_ref(&self.plant, plant, &mut self.editing);
+        frame.render_stateful_widget_ref(self.plant.clone(), plant, &mut self.editing);
         let controller_state = &mut (self.is_controler_active, self.editing.clone());
         frame.render_stateful_widget_ref(&self.controller, controller, controller_state);
-        if let Editing::Reference = self.editing {
-            frame.set_cursor_position((
-                reference.x
-                    + self.referrence.amplitude_edit.as_ref().map_or_else(
-                        || self.referrence.amplitude.to_string().len() as u16,
-                        |a| a.cursor as u16,
-                    )
-                    + 13,
-                reference.y + 1,
-            ));
-        }
         match self.editing {
             Editing::Reference => frame.set_cursor_position((
                 reference.x
@@ -385,14 +317,7 @@ impl App {
                 reference.y + 1,
             )),
             Editing::Plant => {
-                let x_offset = match self.plant.edit.as_ref().unwrap() {
-                    SecondOrderEdit::Zeta(e) => e.cursor as u16 + 8,
-                    SecondOrderEdit::Wn(e) => e.cursor as u16 + 6,
-                };
-                let y_offset = match self.plant.edit.as_ref().unwrap() {
-                    SecondOrderEdit::Zeta(_) => 1,
-                    SecondOrderEdit::Wn(_) => 2,
-                };
+                let (x_offset, y_offset) = self.plant.get_cursor_offsets();
                 frame.set_cursor_position((plant.x + x_offset, plant.y + y_offset))
             }
             _ => (),

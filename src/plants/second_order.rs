@@ -1,10 +1,12 @@
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Modifier;
 use ratatui::style::{Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph, StatefulWidgetRef, Widget, WidgetRef};
+use ratatui::widgets::{Block, Paragraph, StatefulWidgetRef, Widget};
 
+use crate::plants::Plant;
 use crate::Editing;
 use crate::utils::NumericInput;
 
@@ -74,12 +76,6 @@ impl SecondOrderSystem {
         self.b = (b0, b1, b2);
     }
 
-    pub fn set_input(&mut self, u: f64) {
-        self.u.2 = self.u.1;
-        self.u.1 = self.u.0;
-        self.u.0 = u;
-    }
-
     pub fn set_zeta(&mut self, zeta: f64) {
         self.zeta = zeta;
         self.update_coefficients(true);
@@ -96,6 +92,92 @@ impl SecondOrderSystem {
     }
 }
 
+impl Plant for SecondOrderSystem {
+
+    fn get_cursor_offsets(&self) -> (u16, u16) {
+
+            let x_offset = match self.edit.as_ref().unwrap() {
+                SecondOrderEdit::Zeta(e) => e.cursor as u16 + 8,
+                SecondOrderEdit::Wn(e) => e.cursor as u16 + 6,
+            };
+            let y_offset = match self.edit.as_ref().unwrap() {
+                SecondOrderEdit::Zeta(_) => 1,
+                SecondOrderEdit::Wn(_) => 2,
+            };
+            (x_offset, y_offset)
+        }
+
+
+        fn edit(&mut self, editing: &mut Editing, k: KeyEvent) {
+            // ensure one of the edits is initialized
+            let edit = self.edit.get_or_insert(SecondOrderEdit::Zeta(
+                NumericInput::from(self.get_zeta().to_string()),
+            ));
+
+            let input: &mut NumericInput = match edit {
+                SecondOrderEdit::Zeta(e) => e,
+                SecondOrderEdit::Wn(e) => e,
+            };
+
+            match k.code {
+                KeyCode::Esc => {
+                    *editing = Editing::None;
+                    self.edit = None;
+                }
+                KeyCode::Char(c) => {
+                    input.insert(c);
+                }
+                KeyCode::Backspace => {
+                    input.backspace();
+                }
+                KeyCode::Delete => {
+                    input.delete();
+                }
+                KeyCode::Left => {
+                    if input.cursor > 0 {
+                        input.cursor -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    if input.cursor < input.value.len() {
+                        input.cursor += 1;
+                    }
+                }
+                KeyCode::Down | KeyCode::Up | KeyCode::Enter => {
+                    if let Some(num) = input.as_f64() {
+                        match self.edit.as_ref().unwrap() {
+                            SecondOrderEdit::Zeta(_) => {
+                                self.set_zeta(num);
+                                self.edit = Some(SecondOrderEdit::Wn(
+                                    NumericInput::from(self.get_wn().to_string()),
+                                ));
+                            }
+                            SecondOrderEdit::Wn(_) => {
+                                self.set_wn(num);
+                                self.edit =
+                                    Some(SecondOrderEdit::Zeta(NumericInput::from(
+                                        self.get_zeta().to_string(),
+                                    )));
+                            }
+                        }
+                    }
+                    if k.code == KeyCode::Enter {
+                        *editing = Editing::None;
+                        self.edit = None;
+                    }
+                }
+                _ => {}
+            }
+
+        }
+        fn set_input(&mut self, u: f64) {
+        self.u.2 = self.u.1;
+        self.u.1 = self.u.0;
+        self.u.0 = u;
+    }
+}
+
+
 impl Iterator for SecondOrderSystem {
     type Item = (f64, f64);
     fn next(&mut self) -> Option<Self::Item> {
@@ -111,7 +193,7 @@ impl Iterator for SecondOrderSystem {
     }
 }
 
-impl StatefulWidgetRef for &SecondOrderSystem {
+impl StatefulWidgetRef for SecondOrderSystem {
     type State = Editing;
     fn render_ref(&self, area: Rect, buf: &mut Buffer, _state: &mut Self::State) {
         let paragraph = if let Some(input) = self.edit.as_ref() {
