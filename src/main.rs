@@ -304,6 +304,10 @@ impl App {
         self.plant.render(frame, plant, &mut self.editing);
         let controller_state = &mut (self.is_controler_active, self.editing.clone());
         frame.render_stateful_widget_ref(&self.controller, controller, controller_state);
+        self.render_settings_cursor(frame, reference, plant, controller);
+    }
+
+    fn render_settings_cursor(&self, frame: &mut Frame, reference: Rect, plant: Rect, _controller: Rect) {
         match self.editing {
             Editing::Reference => frame.set_cursor_position((
                 reference.x
@@ -321,7 +325,6 @@ impl App {
             _ => (),
         }
     }
-
     fn render_controller_chart(&self, frame: &mut Frame, area: Rect) {
         let x_labels = vec![
             Span::styled(
