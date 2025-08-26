@@ -202,6 +202,13 @@ impl Iterator for SecondOrderSystem {
 impl StatefulWidgetRef for SecondOrderSystem {
     type State = Editing;
     fn render_ref(&self, area: Rect, buf: &mut Buffer, _state: &mut Self::State) {
+        let format_num = |val: f64| {
+            if val.abs() < 0.01 && val != 0.0 {
+                format!("{:.2e}", val) // scientific notation
+            } else {
+                format!("{:.2}", val)  // normal fixed 2 decimals
+            }
+        };
         let paragraph = if let Some(input) = self.edit.as_ref() {
             let (zeta_line, wn_line) = match input {
                 SecondOrderEdit::Zeta(zeta) => (
@@ -227,7 +234,7 @@ impl StatefulWidgetRef for SecondOrderSystem {
                 zeta_line.add_modifier(Modifier::BOLD),
                 wn_line.add_modifier(Modifier::BOLD),
                 Line::from(Span::styled(
-                    format!("y_k = ({:.2}, {:.2})", self.y_k.0, self.y_k.1),
+                    format!("y_k = ({}, {})", format_num(self.y_k.0), format_num(self.y_k.1)),
                     Style::default().add_modifier(Modifier::BOLD).gray(),
                 )),
             ];
@@ -248,7 +255,7 @@ impl StatefulWidgetRef for SecondOrderSystem {
                     Style::default().add_modifier(Modifier::BOLD),
                 )),
                 Line::from(Span::styled(
-                    format!("y_k = ({:.2}, {:.2})", self.y_k.0, self.y_k.1),
+                    format!("y_k = ({}, {})", format_num(self.y_k.0), format_num(self.y_k.1)),
                     Style::default().add_modifier(Modifier::BOLD),
                 )),
             ];
