@@ -17,8 +17,8 @@ pub use controllers::pid_0::PIDController;
 pub use inputs::step::StepSignal;
 pub use plants::first_order::FirstOrderSystem;
 
-use crate::plants::second_order::{SecondOrderEdit, SecondOrderSystem};
 use crate::plants::Plant;
+use crate::plants::second_order::SecondOrderSystem;
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -28,7 +28,7 @@ fn main() -> Result<()> {
 struct App {
     referrence: StepSignal,
     referrence_data: Vec<(f64, f64)>,
-    plant: SecondOrderSystem,
+    plant: Box<dyn Plant>,
     plant_data: Vec<(f64, f64)>,
     window: [f64; 2],
     samples_per_window: usize,
@@ -55,21 +55,21 @@ impl App {
         let samples_per_window = (window_size / sampling) as usize;
         let mut input = StepSignal::new(sampling, 15.0);
         // let mut output = FirstOrderSystem::new(sampling, 0.95, 0.05, None);
-        let mut output = SecondOrderSystem::new(
+        let mut plant = Box::new(SecondOrderSystem::new(
             0.5, // damping ratio
             1.0, // natural frequency
             sampling, true, // prewarp
             None, // initial conditions
-        );
+        ));
         // let mut controller = PIDController::new(3.0, 1.9, 0.0, 10.0, sampling);
         let mut controller = PIDController::new(0.8, 2.0, 2.0, 5.0, sampling);
         let input_data = input.by_ref().take(0).collect::<Vec<(f64, f64)>>();
-        let output_data = output.by_ref().take(0).collect::<Vec<(f64, f64)>>();
+        let output_data = plant.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         let controller_data = controller.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         Self {
             referrence: input,
             referrence_data: input_data,
-            plant: output,
+            plant,
             plant_data: output_data,
             window: [0.0, window_size],
             samples_per_window,
@@ -108,9 +108,7 @@ impl App {
                         }
                         KeyCode::Char('p') | KeyCode::Char('P') => {
                             self.editing = Editing::Plant;
-                            self.plant.edit = Some(SecondOrderEdit::Zeta(NumericInput::from(
-                                self.plant.get_zeta().to_string(),
-                            )));
+                            self.plant.set_edit();
                         }
                         KeyCode::Char('c') | KeyCode::Char('C') => {
                             self.is_controler_active = !self.is_controler_active;
@@ -303,7 +301,7 @@ impl App {
         let vertical = Layout::vertical([Constraint::Fill(1); 3]);
         let [reference, plant, controller] = settings.layout(&vertical);
         frame.render_stateful_widget_ref(&self.referrence, reference, &mut self.editing);
-        frame.render_stateful_widget_ref(self.plant.clone(), plant, &mut self.editing);
+        self.plant.render(frame, plant, &mut self.editing);
         let controller_state = &mut (self.is_controler_active, self.editing.clone());
         frame.render_stateful_widget_ref(&self.controller, controller, controller_state);
         match self.editing {
