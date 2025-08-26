@@ -54,7 +54,7 @@ impl App {
         let window_size = 20.0;
         let samples_per_window = (window_size / sampling) as usize;
         let mut input = StepSignal::new(sampling, 15.0);
-        // let mut output = FirstOrderSystem::new(sampling, 0.95, 0.05, None);
+        // let mut plant = Box::new(FirstOrderSystem::new(sampling, 0.95, 0.05, None));
         let mut plant = Box::new(SecondOrderSystem::new(
             0.5, // damping ratio
             1.0, // natural frequency
