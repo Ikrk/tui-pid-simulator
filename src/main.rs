@@ -101,119 +101,130 @@ impl App {
                 last_tick = Instant::now();
                 continue;
             }
-            if let Some(k) = event::read()?.as_key_press_event() {
-                match self.editing {
-                    Editing::None => match k.code {
-                        KeyCode::Char('q') | KeyCode::Char('Q') => return Ok(()),
-                        KeyCode::Char('s') | KeyCode::Char('S') => {
-                            self.simulation_on = !self.simulation_on;
-                        }
-                        KeyCode::Char('i') | KeyCode::Char('I') => {
-                            self.editing = Editing::Reference;
-                        }
-                        KeyCode::Char('p') => {
-                            self.editing = Editing::Plant;
-                            self.plant.set_edit();
-                        }
-                        KeyCode::Char('P') => {
-                            self.editing = Editing::PlantType(None);
-                        }
-                        KeyCode::Char('c') | KeyCode::Char('C') => {
-                            self.is_controler_active = !self.is_controler_active;
-                        }
-                        _ => (),
-                    },
-                    Editing::Reference => {
-                        if self.referrence.amplitude_edit.is_none() {
-                            self.referrence.amplitude_edit =
-                                Some(NumericInput::from(self.referrence.amplitude.to_string()));
-                        }
-
-                        if let Some(edit) = self.referrence.amplitude_edit.as_mut() {
-                            match k.code {
-                                KeyCode::Esc => {
-                                    self.editing = Editing::None;
-                                    self.referrence.amplitude_edit = None;
-                                }
-                                KeyCode::Char(c) => {
-                                    edit.insert(c);
-                                }
-                                KeyCode::Backspace => {
-                                    edit.backspace();
-                                }
-                                KeyCode::Delete => {
-                                    edit.delete();
-                                }
-                                KeyCode::Left => {
-                                    if edit.cursor > 0 {
-                                        edit.cursor -= 1;
-                                    }
-                                }
-                                KeyCode::Right => {
-                                    if edit.cursor < edit.value.len() {
-                                        edit.cursor += 1;
-                                    }
-                                }
-                                KeyCode::Enter => {
-                                    if let Some(num) = edit.as_f64() {
-                                        self.referrence.amplitude = num;
-                                        self.referrence.amplitude_edit = None;
-                                        self.editing = Editing::None;
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                    Editing::Plant => {
-                        self.plant.edit(&mut self.editing, k);
-                    }
-                    Editing::PlantType(idx) => match k.code {
-                        KeyCode::Esc => {
-                            self.editing = Editing::None;
-                        }
-                        KeyCode::Down => {
-                            if let Some(idx) = idx {
-                                let plants_count = PLANT_REGISTRY.lock().unwrap().len();
-                                if idx + 1 < plants_count {
-                                    self.editing = Editing::PlantType(Some(idx + 1));
-                                } else {
-                                    self.editing = Editing::PlantType(Some(0));
-                                }
-                            } else {
-                                self.editing = Editing::PlantType(Some(0));
-                            }
-                        }
-                        KeyCode::Up => {
-                            if let Some(idx) = idx {
-                                let plants_count = PLANT_REGISTRY.lock().unwrap().len();
-                                if idx == 0 {
-                                    self.editing = Editing::PlantType(Some(plants_count - 1));
-                                } else {
-                                    self.editing = Editing::PlantType(Some(idx - 1));
-                                }
-                            } else {
-                                self.editing = Editing::PlantType(Some(0));
-                            }
-                        }
-                        KeyCode::Enter => {
-                            if let Some(selected_idx) = idx {
-                                let current = self.plant.name();
-                                let current_idx = PLANT_REGISTRY.lock().unwrap().keys().position(|n| *n == current).unwrap_or(0);
-                                if current_idx != selected_idx {
-                                    self.plant = get_plant_by_index(selected_idx).unwrap();
-                                    self.reset();
-                                }
-                            }
-                            self.editing = Editing::None;
-                        }
-                        _ => {}
-                    },
-                    _ => (),
-                    // Editing::Controller => todo!(),
-                }
+            // Terminate the program if the user presses 'q' or 'Q' and true is returned
+            if self.event_handler()? {
+                return Ok(());
             }
         }
+    }
+
+    /// Handles user input events.
+    ///
+    /// @returns Ok(true) if the user wants to quit the program.
+    fn event_handler(&mut self) -> Result<bool> {
+        if let Some(k) = event::read()?.as_key_press_event() {
+            match self.editing {
+                Editing::None => match k.code {
+                    KeyCode::Char('q') | KeyCode::Char('Q') => return Ok(true),
+                    KeyCode::Char('s') | KeyCode::Char('S') => {
+                        self.simulation_on = !self.simulation_on;
+                    }
+                    KeyCode::Char('i') | KeyCode::Char('I') => {
+                        self.editing = Editing::Reference;
+                    }
+                    KeyCode::Char('p') => {
+                        self.editing = Editing::Plant;
+                        self.plant.set_edit();
+                    }
+                    KeyCode::Char('P') => {
+                        self.editing = Editing::PlantType(None);
+                    }
+                    KeyCode::Char('c') | KeyCode::Char('C') => {
+                        self.is_controler_active = !self.is_controler_active;
+                    }
+                    _ => (),
+                },
+                Editing::Reference => {
+                    if self.referrence.amplitude_edit.is_none() {
+                        self.referrence.amplitude_edit =
+                            Some(NumericInput::from(self.referrence.amplitude.to_string()));
+                    }
+
+                    if let Some(edit) = self.referrence.amplitude_edit.as_mut() {
+                        match k.code {
+                            KeyCode::Esc => {
+                                self.editing = Editing::None;
+                                self.referrence.amplitude_edit = None;
+                            }
+                            KeyCode::Char(c) => {
+                                edit.insert(c);
+                            }
+                            KeyCode::Backspace => {
+                                edit.backspace();
+                            }
+                            KeyCode::Delete => {
+                                edit.delete();
+                            }
+                            KeyCode::Left => {
+                                if edit.cursor > 0 {
+                                    edit.cursor -= 1;
+                                }
+                            }
+                            KeyCode::Right => {
+                                if edit.cursor < edit.value.len() {
+                                    edit.cursor += 1;
+                                }
+                            }
+                            KeyCode::Enter => {
+                                if let Some(num) = edit.as_f64() {
+                                    self.referrence.amplitude = num;
+                                    self.referrence.amplitude_edit = None;
+                                    self.editing = Editing::None;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                Editing::Plant => {
+                    self.plant.edit(&mut self.editing, k);
+                }
+                Editing::PlantType(idx) => match k.code {
+                    KeyCode::Esc => {
+                        self.editing = Editing::None;
+                    }
+                    KeyCode::Down => {
+                        if let Some(idx) = idx {
+                            let plants_count = PLANT_REGISTRY.lock().unwrap().len();
+                            if idx + 1 < plants_count {
+                                self.editing = Editing::PlantType(Some(idx + 1));
+                            } else {
+                                self.editing = Editing::PlantType(Some(0));
+                            }
+                        } else {
+                            self.editing = Editing::PlantType(Some(0));
+                        }
+                    }
+                    KeyCode::Up => {
+                        if let Some(idx) = idx {
+                            let plants_count = PLANT_REGISTRY.lock().unwrap().len();
+                            if idx == 0 {
+                                self.editing = Editing::PlantType(Some(plants_count - 1));
+                            } else {
+                                self.editing = Editing::PlantType(Some(idx - 1));
+                            }
+                        } else {
+                            self.editing = Editing::PlantType(Some(0));
+                        }
+                    }
+                    KeyCode::Enter => {
+                        if let Some(selected_idx) = idx {
+                            let current = self.plant.name();
+                            let current_idx = PLANT_REGISTRY.lock().unwrap().keys().position(|n| *n == current).unwrap_or(0);
+                            if current_idx != selected_idx {
+                                self.plant = get_plant_by_index(selected_idx).unwrap();
+                                self.reset();
+                            }
+                        }
+                        self.editing = Editing::None;
+                    }
+                    _ => {}
+                },
+                _ => (),
+                // Editing::Controller => todo!(),
+            }
+        }
+        Ok(false)
     }
 
     fn on_tick(&mut self) {
