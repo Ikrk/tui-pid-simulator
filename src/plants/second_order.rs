@@ -4,11 +4,13 @@ use ratatui::layout::Rect;
 use ratatui::style::Modifier;
 use ratatui::style::{Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, FrameExt, Paragraph, StatefulWidgetRef, Widget};
+use ratatui::widgets::{FrameExt, Paragraph, StatefulWidgetRef, Widget};
 
-use crate::Editing;
+use crate::{register_plant, Editing};
 use crate::plants::Plant;
 use crate::utils::NumericInput;
+
+const PLANT_NAME: &str = "SecondOrderSystem";
 
 /// Discrete-time second-order system:
 ///
@@ -80,6 +82,12 @@ impl SecondOrderSystem {
         self.zeta = zeta;
         self.update_coefficients(true);
     }
+
+    #[allow(dead_code)]
+    pub fn set_ts(&mut self, ts: f64) {
+        self.Ts = ts;
+        self.update_coefficients(true);
+    }
     pub fn get_zeta(&self) -> f64 {
         self.zeta
     }
@@ -92,6 +100,12 @@ impl SecondOrderSystem {
     }
 }
 
+impl Default for SecondOrderSystem {
+    fn default() -> Self {
+        SecondOrderSystem::new(0.5, 1.0, 0.1, true, None)
+    }
+}
+
 impl Plant for SecondOrderSystem {
     fn get_cursor_offsets(&self) -> (u16, u16) {
         let x_offset = match self.edit.as_ref().unwrap() {
@@ -99,8 +113,8 @@ impl Plant for SecondOrderSystem {
             SecondOrderEdit::Wn(e) => e.cursor as u16 + 6,
         };
         let y_offset = match self.edit.as_ref().unwrap() {
-            SecondOrderEdit::Zeta(_) => 1,
-            SecondOrderEdit::Wn(_) => 2,
+            SecondOrderEdit::Zeta(_) => 2,
+            SecondOrderEdit::Wn(_) => 3,
         };
         (x_offset, y_offset)
     }
@@ -182,6 +196,10 @@ impl Plant for SecondOrderSystem {
             self.get_zeta().to_string(),
         )));
     }
+
+    fn name(&self) -> &'static str {
+        PLANT_NAME
+    }
 }
 
 impl Iterator for SecondOrderSystem {
@@ -209,6 +227,11 @@ impl StatefulWidgetRef for SecondOrderSystem {
                 format!("{:.2}", val)  // normal fixed 2 decimals
             }
         };
+
+        let plant_line = Line::from(Span::styled(
+            format!("Second Order"),
+            Style::default().add_modifier(Modifier::BOLD),
+        ));
         let paragraph = if let Some(input) = self.edit.as_ref() {
             let (zeta_line, wn_line) = match input {
                 SecondOrderEdit::Zeta(zeta) => (
@@ -231,6 +254,7 @@ impl StatefulWidgetRef for SecondOrderSystem {
                 ),
             };
             let lines = vec![
+                plant_line,
                 zeta_line.add_modifier(Modifier::BOLD),
                 wn_line.add_modifier(Modifier::BOLD),
                 Line::from(Span::styled(
@@ -238,14 +262,10 @@ impl StatefulWidgetRef for SecondOrderSystem {
                     Style::default().add_modifier(Modifier::BOLD).gray(),
                 )),
             ];
-            Paragraph::new(lines).add_modifier(Modifier::BOLD).block(
-                Block::bordered().cyan().title_top(Line::from(vec![
-                    " Plant - Second Order ".into(),
-                    "<ESC> ".blue().bold(),
-                ])),
-            )
+            Paragraph::new(lines).add_modifier(Modifier::BOLD)
         } else {
             let lines = vec![
+                plant_line,
                 Line::from(Span::styled(
                     format!("zeta = {}", self.zeta),
                     Style::default().add_modifier(Modifier::BOLD),
@@ -259,11 +279,9 @@ impl StatefulWidgetRef for SecondOrderSystem {
                     Style::default().add_modifier(Modifier::BOLD),
                 )),
             ];
-            Paragraph::new(lines).block(Block::bordered().title_top(Line::from(vec![
-                " Plant - Second Order ".into(),
-                "<p> ".blue().bold(),
-            ])))
-        };
+            Paragraph::new(lines)        };
         paragraph.render(area, buf);
     }
 }
+
+register_plant!(SecondOrderSystem, PLANT_NAME);

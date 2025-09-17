@@ -26,6 +26,9 @@ impl StepSignal {
             amplitude_edit: None,
         }
     }
+    pub fn reset(&mut self) {
+        self.x = 0.0;
+    }
 }
 
 impl Iterator for StepSignal {

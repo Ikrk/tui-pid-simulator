@@ -4,11 +4,13 @@ use ratatui::layout::Rect;
 use ratatui::style::Modifier;
 use ratatui::style::{Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, FrameExt, Paragraph, StatefulWidgetRef, Widget};
+use ratatui::widgets::{FrameExt, Paragraph, StatefulWidgetRef, Widget};
 
-use crate::Editing;
+use crate::{register_plant,Editing};
 use crate::plants::Plant;
 use crate::utils::NumericInput;
+
+const PLANT_NAME: &str = "FirstOrderSystem";
 
 /// Discrete-time first-order system:
 ///   y_{k+1} = a * y_k + b * u_k
@@ -43,6 +45,16 @@ impl FirstOrderSystem {
             edit: None,
         }
     }
+    pub fn set_ts(&mut self, ts: f64) {
+        self.Ts = ts;
+    }
+
+}
+
+impl Default for FirstOrderSystem {
+    fn default() -> Self {
+        Self::new(0.1, 0.95, 0.05, None)
+    }
 }
 
 impl Plant for FirstOrderSystem {
@@ -52,8 +64,8 @@ impl Plant for FirstOrderSystem {
             FirstOrderEdit::B(e) => e.cursor as u16 + 5,
         };
         let y_offset = match self.edit.as_ref().unwrap() {
-            FirstOrderEdit::A(_) => 1,
-            FirstOrderEdit::B(_) => 2,
+            FirstOrderEdit::A(_) => 2,
+            FirstOrderEdit::B(_) => 3,
         };
         (x_offset, y_offset)
     }
@@ -128,6 +140,9 @@ impl Plant for FirstOrderSystem {
     fn render(&self, frame: &mut ratatui::Frame, area: Rect, state: &mut crate::Editing) {
         frame.render_stateful_widget_ref(self.clone(), area, state);
     }
+    fn name(&self) -> &'static str {
+        PLANT_NAME
+    }
 }
 
 impl Iterator for FirstOrderSystem {
@@ -147,9 +162,13 @@ impl StatefulWidgetRef for FirstOrderSystem {
             if val.abs() < 0.01 && val != 0.0 {
                 format!("{:.2e}", val) // scientific notation
             } else {
-                format!("{:.2}", val)  // normal fixed 2 decimals
+                format!("{:.2}", val) // normal fixed 2 decimals
             }
         };
+        let plant_line = Line::from(Span::styled(
+            format!("First Order"),
+            Style::default().add_modifier(Modifier::BOLD),
+        ));
         let paragraph = if let Some(input) = self.edit.as_ref() {
             let (zeta_line, wn_line) = match input {
                 FirstOrderEdit::A(a) => (
@@ -160,11 +179,7 @@ impl StatefulWidgetRef for FirstOrderSystem {
                     Line::from(Span::styled(format!("b = {}", self.b), Style::default())).white(),
                 ),
                 FirstOrderEdit::B(b) => (
-                    Line::from(Span::styled(
-                        format!("a = {}", self.a),
-                        Style::default(),
-                    ))
-                    .white(),
+                    Line::from(Span::styled(format!("a = {}", self.a), Style::default())).white(),
                     Line::from(vec![
                         Span::raw("b = ").white(),
                         Span::styled(b.value.clone(), Style::default().cyan()),
@@ -172,24 +187,18 @@ impl StatefulWidgetRef for FirstOrderSystem {
                 ),
             };
             let lines = vec![
+                plant_line,
                 zeta_line.add_modifier(Modifier::BOLD),
                 wn_line.add_modifier(Modifier::BOLD),
                 Line::from(Span::styled(
-                    format!(
-                        "y_k = {}",
-                        format_num(self.y_k),
-                    ),
+                    format!("y_k = {}", format_num(self.y_k),),
                     Style::default().add_modifier(Modifier::BOLD).gray(),
                 )),
             ];
-            Paragraph::new(lines).add_modifier(Modifier::BOLD).block(
-                Block::bordered().cyan().title_top(Line::from(vec![
-                    " Plant - Second Order ".into(),
-                    "<ESC> ".blue().bold(),
-                ])),
-            )
+            Paragraph::new(lines).add_modifier(Modifier::BOLD)
         } else {
             let lines = vec![
+                plant_line,
                 Line::from(Span::styled(
                     format!("a = {}", self.a),
                     Style::default().add_modifier(Modifier::BOLD),
@@ -199,18 +208,14 @@ impl StatefulWidgetRef for FirstOrderSystem {
                     Style::default().add_modifier(Modifier::BOLD),
                 )),
                 Line::from(Span::styled(
-                    format!(
-                        "y_k = {}",
-                        format_num(self.y_k),
-                    ),
+                    format!("y_k = {}", format_num(self.y_k),),
                     Style::default().add_modifier(Modifier::BOLD),
                 )),
             ];
-            Paragraph::new(lines).block(Block::bordered().title_top(Line::from(vec![
-                " Plant - First Order ".into(),
-                "<p> ".blue().bold(),
-            ])))
+            Paragraph::new(lines)
         };
         paragraph.render(area, buf);
     }
 }
+
+register_plant!(FirstOrderSystem,PLANT_NAME);

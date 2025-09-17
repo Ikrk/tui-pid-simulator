@@ -2,11 +2,13 @@ use std::time::{Duration, Instant};
 
 use color_eyre::Result;
 use crossterm::event::{self, KeyCode};
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::symbols::{self, Marker};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Axis, Block, Chart, Dataset, FrameExt, GraphType};
+use ratatui::widgets::{
+    Axis, Block, Borders, Chart, Clear, Dataset, FrameExt, GraphType, List, ListItem, ListState
+};
 use ratatui::{DefaultTerminal, Frame};
 mod utils;
 use utils::NumericInput;
@@ -17,7 +19,7 @@ pub use controllers::pid_0::PIDController;
 pub use inputs::step::StepSignal;
 pub use plants::first_order::FirstOrderSystem;
 
-use crate::plants::Plant;
+use crate::plants::{get_plant_by_index, Plant, PLANT_REGISTRY};
 use crate::plants::second_order::SecondOrderSystem;
 
 fn main() -> Result<()> {
@@ -45,23 +47,17 @@ pub enum Editing {
     None,
     Reference,
     Plant,
+    PlantType(Option<usize>),
     Controller,
 }
 
+const WINDOW_SIZE: f64 = 20.0;
 impl App {
     fn new() -> Self {
         let sampling = 0.1;
-        let window_size = 20.0;
-        let samples_per_window = (window_size / sampling) as usize;
+        let samples_per_window = (WINDOW_SIZE / sampling) as usize;
         let mut input = StepSignal::new(sampling, 15.0);
-        // let mut plant = Box::new(FirstOrderSystem::new(sampling, 0.95, 0.05, None));
-        let mut plant = Box::new(SecondOrderSystem::new(
-            0.5, // damping ratio
-            1.0, // natural frequency
-            sampling, true, // prewarp
-            None, // initial conditions
-        ));
-        // let mut controller = PIDController::new(3.0, 1.9, 0.0, 10.0, sampling);
+        let mut plant = Box::new(SecondOrderSystem::default());
         let mut controller = PIDController::new(0.8, 2.0, 2.0, 5.0, sampling);
         let input_data = input.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         let output_data = plant.by_ref().take(0).collect::<Vec<(f64, f64)>>();
@@ -71,7 +67,7 @@ impl App {
             referrence_data: input_data,
             plant,
             plant_data: output_data,
-            window: [0.0, window_size],
+            window: [0.0, WINDOW_SIZE],
             samples_per_window,
             sampling,
             controller,
@@ -80,6 +76,13 @@ impl App {
             controller_data: controller_data,
             is_controler_active: true,
         }
+    }
+
+    fn reset(&mut self) {
+        self.referrence.reset();
+        self.referrence_data = self.referrence.by_ref().take(0).collect::<Vec<(f64, f64)>>();
+        self.plant_data = self.plant.by_ref().take(0).collect::<Vec<(f64, f64)>>();
+        self.window = [0.0, WINDOW_SIZE];
     }
 
     fn run(mut self, terminal: &mut DefaultTerminal) -> Result<()> {
@@ -106,9 +109,12 @@ impl App {
                         KeyCode::Char('i') | KeyCode::Char('I') => {
                             self.editing = Editing::Reference;
                         }
-                        KeyCode::Char('p') | KeyCode::Char('P') => {
+                        KeyCode::Char('p') => {
                             self.editing = Editing::Plant;
                             self.plant.set_edit();
+                        }
+                        KeyCode::Char('P') => {
+                            self.editing = Editing::PlantType(None);
                         }
                         KeyCode::Char('c') | KeyCode::Char('C') => {
                             self.is_controler_active = !self.is_controler_active;
@@ -160,6 +166,47 @@ impl App {
                     Editing::Plant => {
                         self.plant.edit(&mut self.editing, k);
                     }
+                    Editing::PlantType(idx) => match k.code {
+                        KeyCode::Esc => {
+                            self.editing = Editing::None;
+                        }
+                        KeyCode::Down => {
+                            if let Some(idx) = idx {
+                                let plants_count = PLANT_REGISTRY.lock().unwrap().len();
+                                if idx + 1 < plants_count {
+                                    self.editing = Editing::PlantType(Some(idx + 1));
+                                } else {
+                                    self.editing = Editing::PlantType(Some(0));
+                                }
+                            } else {
+                                self.editing = Editing::PlantType(Some(0));
+                            }
+                        }
+                        KeyCode::Up => {
+                            if let Some(idx) = idx {
+                                let plants_count = PLANT_REGISTRY.lock().unwrap().len();
+                                if idx == 0 {
+                                    self.editing = Editing::PlantType(Some(plants_count - 1));
+                                } else {
+                                    self.editing = Editing::PlantType(Some(idx - 1));
+                                }
+                            } else {
+                                self.editing = Editing::PlantType(Some(0));
+                            }
+                        }
+                        KeyCode::Enter => {
+                            if let Some(selected_idx) = idx {
+                                let current = self.plant.name();
+                                let current_idx = PLANT_REGISTRY.lock().unwrap().keys().position(|n| *n == current).unwrap_or(0);
+                                if current_idx != selected_idx {
+                                    self.plant = get_plant_by_index(selected_idx).unwrap();
+                                    self.reset();
+                                }
+                            }
+                            self.editing = Editing::None;
+                        }
+                        _ => {}
+                    },
                     _ => (),
                     // Editing::Controller => todo!(),
                 }
@@ -225,6 +272,7 @@ impl App {
         self.render_settings(frame, bar_chart);
         self.render_controller_chart(frame, controller_chart);
         render_scatter(frame, scatter);
+        self.render_edit_popup(frame);
     }
 
     fn render_animated_chart(&self, frame: &mut Frame, area: Rect) {
@@ -301,13 +349,29 @@ impl App {
         let vertical = Layout::vertical([Constraint::Fill(1); 3]);
         let [reference, plant, controller] = settings.layout(&vertical);
         frame.render_stateful_widget_ref(&self.referrence, reference, &mut self.editing);
-        self.plant.render(frame, plant, &mut self.editing);
+
+        let outer_plant_block = if let Editing::Plant = self.editing {
+            Block::bordered().title_top(Line::from(vec![" Plant ".into(), "<ESC> ".blue().bold()])).cyan()
+        } else {
+            Block::bordered().title_top(Line::from(vec![" Plant ".into(), "<p/P> ".blue().bold()]))
+        };
+        let inner_plant_area = outer_plant_block.inner(plant);
+        frame.render_widget(outer_plant_block, plant);
+
+        self.plant
+            .render(frame, inner_plant_area, &mut self.editing);
         let controller_state = &mut (self.is_controler_active, self.editing.clone());
         frame.render_stateful_widget_ref(&self.controller, controller, controller_state);
         self.render_settings_cursor(frame, reference, plant, controller);
     }
 
-    fn render_settings_cursor(&self, frame: &mut Frame, reference: Rect, plant: Rect, _controller: Rect) {
+    fn render_settings_cursor(
+        &self,
+        frame: &mut Frame,
+        reference: Rect,
+        plant: Rect,
+        _controller: Rect,
+    ) {
         match self.editing {
             Editing::Reference => frame.set_cursor_position((
                 reference.x
@@ -369,38 +433,69 @@ impl App {
             );
 
         frame.render_widget(chart, area);
-        // let datasets = vec![
-        //     Dataset::default()
-        //         .name("Line from only 2 points".italic())
-        //         .marker(symbols::Marker::Braille)
-        //         .style(Style::default().fg(Color::Yellow))
-        //         .graph_type(GraphType::Line)
-        //         .data(&[(1., 1.), (4., 4.)]),
-        // ];
+    }
+    fn render_edit_popup(&mut self, frame: &mut Frame) {
+        if let Editing::PlantType(idx) = self.editing {
+            let popup_block = Block::default()
+                .title("Choose a plant type (ESC to close)")
+                .borders(Borders::ALL)
+                .style(Style::default().bg(Color::Black).fg(Color::White));
 
-        // let chart = Chart::new(datasets)
-        //     .block(Block::bordered().title(Line::from("Line chart").cyan().bold().centered()))
-        //     .x_axis(
-        //         Axis::default()
-        //             .title("X Axis")
-        //             .style(Style::default().gray())
-        //             .bounds([0.0, 5.0])
-        //             .labels(["0".bold(), "2.5".into(), "5.0".bold()]),
-        //     )
-        //     .y_axis(
-        //         Axis::default()
-        //             .title("Y Axis")
-        //             .style(Style::default().gray())
-        //             .bounds([0.0, 5.0])
-        //             .labels(["0".bold(), "2.5".into(), "5.0".bold()]),
-        //     )
-        //     .legend_position(Some(LegendPosition::TopLeft))
-        //     .hidden_legend_constraints((Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)));
+            let area = centered_rect(25, 25, frame.area());
+            frame.render_widget(Clear, area);
+            frame.render_widget(popup_block, area);
+            let current = self.plant.name();
+            // Build list items from registry
+                let items: Vec<ListItem> = PLANT_REGISTRY.lock().unwrap()
+                    .keys()
+                    .map(|name| ListItem::new(Span::raw(*name)))
+                    .collect();
 
-        // frame.render_widget(chart, area);
+                let list = List::new(items)
+                    .block(Block::default().borders(Borders::ALL).title("Choose a plant type (ESC to close)"))
+                    .highlight_style(
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .highlight_symbol(">> ");
+
+                // Figure out which index corresponds to `current`
+                let selected_idx = idx.or_else(||PLANT_REGISTRY.lock().unwrap().keys().position(|n| *n == current) );
+                self.editing = Editing::PlantType(selected_idx);
+
+                // Setup list state with highlighted element
+                let mut state = ListState::default();
+                if let Some(idx) = selected_idx {
+                    state.select(Some(idx));
+                }
+
+                frame.render_stateful_widget(list, area, &mut state);
+        }
     }
 }
+/// helper function to create a centered rect using up certain percentage of the available rect `r`
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    // Cut the given rectangle into three vertical pieces
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
 
+    // Then cut the middle vertical piece into three width-wise pieces
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1] // Return the middle chunk
+}
 fn render_scatter(frame: &mut Frame, area: Rect) {
     let datasets = vec![
         Dataset::default()
