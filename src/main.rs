@@ -80,8 +80,10 @@ impl App {
 
     fn reset(&mut self) {
         self.referrence.reset();
+        self.controller.reset();
         self.referrence_data = self.referrence.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         self.plant_data = self.plant.by_ref().take(0).collect::<Vec<(f64, f64)>>();
+        self.controller_data = self.controller.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         self.window = [0.0, WINDOW_SIZE];
     }
 
@@ -241,12 +243,13 @@ impl App {
                 .set_plant_output(self.plant_data.last().map_or(0.0, |(_, y)| *y));
         } else {
             let set_point = self.referrence_data.last().map_or(0.0, |(_, y)| *y);
-            self.controller.reset_to_setpoint(set_point);
+            // self.controller.reset_to_setpoint(set_point);
             if self.controller_data.len() >= self.samples_per_window {
                 self.controller_data.drain(0..1);
             }
-            self.controller_data
-                .extend(self.controller.by_ref().take(1));
+            let last_controller_output = self.controller_data.last().map_or(0.0, |(_, y)| *y);
+            let x = self.controller.by_ref().take(1).next().unwrap_or((0.0, 0.0)).0;
+            self.controller_data.push((x, last_controller_output));
 
             self.plant.set_input(set_point);
             if self.plant_data.len() >= self.samples_per_window {

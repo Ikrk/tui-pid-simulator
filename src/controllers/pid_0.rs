@@ -77,6 +77,11 @@ impl PIDController {
         self.e.2 = 0.0;
         self.set_plant_output(u);
     }
+    pub fn reset(&mut self) {
+        self.x = 0.0;
+        self.reset_to_setpoint(0.0);
+        self.set_plant_output(0.0);
+    }
 }
 
 impl Iterator for PIDController {
