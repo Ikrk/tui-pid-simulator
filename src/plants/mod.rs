@@ -3,8 +3,6 @@ use ratatui::{layout::Rect, widgets::StatefulWidgetRef, Frame};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
-
-
 use crate::Editing;
 
 pub mod first_order;

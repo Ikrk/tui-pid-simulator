@@ -7,11 +7,10 @@ use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::symbols::{self, Marker};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
-    Axis, Block, Borders, Chart, Clear, Dataset, FrameExt, GraphType, List, ListItem, ListState
+    Axis, Block, Borders, Chart, Clear, Dataset, FrameExt, GraphType, List, ListItem, ListState,
 };
 use ratatui::{DefaultTerminal, Frame};
 mod utils;
-use utils::NumericInput;
 mod controllers;
 mod inputs;
 mod plants;
@@ -19,8 +18,9 @@ pub use controllers::pid_0::PIDController;
 pub use inputs::step::StepSignal;
 pub use plants::first_order::FirstOrderSystem;
 
-use crate::plants::{get_plant_by_index, Plant, PLANT_REGISTRY};
+use crate::inputs::{get_reference_by_index, Reference, REFERENCE_REGISTRY};
 use crate::plants::second_order::SecondOrderSystem;
+use crate::plants::{PLANT_REGISTRY, Plant, get_plant_by_index};
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -28,7 +28,7 @@ fn main() -> Result<()> {
 }
 
 struct App {
-    reference: StepSignal,
+    reference: Box<dyn Reference>,
     reference_data: Vec<(f64, f64)>,
     plant: Box<dyn Plant>,
     plant_data: Vec<(f64, f64)>,
@@ -46,6 +46,7 @@ struct App {
 pub enum Editing {
     None,
     Reference,
+    ReferenceType(Option<usize>),
     Plant,
     PlantType(Option<usize>),
     Controller,
@@ -56,7 +57,7 @@ impl App {
     fn new() -> Self {
         let sampling = 0.1;
         let samples_per_window = (WINDOW_SIZE / sampling) as usize;
-        let mut input = StepSignal::new(sampling, 15.0);
+        let mut input = Box::new(StepSignal::new(sampling, 15.0));
         let mut plant = Box::new(SecondOrderSystem::default());
         let mut controller = PIDController::new(0.8, 2.0, 2.0, 5.0, sampling);
         let input_data = input.by_ref().take(0).collect::<Vec<(f64, f64)>>();
@@ -83,7 +84,11 @@ impl App {
         self.controller.reset();
         self.reference_data = self.reference.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         self.plant_data = self.plant.by_ref().take(0).collect::<Vec<(f64, f64)>>();
-        self.controller_data = self.controller.by_ref().take(0).collect::<Vec<(f64, f64)>>();
+        self.controller_data = self
+            .controller
+            .by_ref()
+            .take(0)
+            .collect::<Vec<(f64, f64)>>();
         self.window = [0.0, WINDOW_SIZE];
     }
 
@@ -119,8 +124,12 @@ impl App {
                     KeyCode::Char('s') | KeyCode::Char('S') => {
                         self.simulation_on = !self.simulation_on;
                     }
-                    KeyCode::Char('i') | KeyCode::Char('I') => {
+                    KeyCode::Char('i') => {
                         self.editing = Editing::Reference;
+                        self.reference.set_edit();
+                    }
+                    KeyCode::Char('I') => {
+                        self.editing = Editing::ReferenceType(None);
                     }
                     KeyCode::Char('p') => {
                         self.editing = Editing::Plant;
@@ -135,50 +144,57 @@ impl App {
                     _ => (),
                 },
                 Editing::Reference => {
-                    if self.reference.amplitude_edit.is_none() {
-                        self.reference.amplitude_edit =
-                            Some(NumericInput::from(self.reference.amplitude.to_string()));
-                    }
-
-                    if let Some(edit) = self.reference.amplitude_edit.as_mut() {
-                        match k.code {
-                            KeyCode::Esc => {
-                                self.editing = Editing::None;
-                                self.reference.amplitude_edit = None;
-                            }
-                            KeyCode::Char(c) => {
-                                edit.insert(c);
-                            }
-                            KeyCode::Backspace => {
-                                edit.backspace();
-                            }
-                            KeyCode::Delete => {
-                                edit.delete();
-                            }
-                            KeyCode::Left => {
-                                if edit.cursor > 0 {
-                                    edit.cursor -= 1;
-                                }
-                            }
-                            KeyCode::Right => {
-                                if edit.cursor < edit.value.len() {
-                                    edit.cursor += 1;
-                                }
-                            }
-                            KeyCode::Enter => {
-                                if let Some(num) = edit.as_f64() {
-                                    self.reference.amplitude = num;
-                                    self.reference.amplitude_edit = None;
-                                    self.editing = Editing::None;
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
+                    self.reference.edit(&mut self.editing, k);
                 }
                 Editing::Plant => {
                     self.plant.edit(&mut self.editing, k);
                 }
+                Editing::ReferenceType(idx) => match k.code {
+                    KeyCode::Esc => {
+                        self.editing = Editing::None;
+                    }
+                    KeyCode::Down => {
+                        if let Some(idx) = idx {
+                            let refs_count = REFERENCE_REGISTRY.lock().unwrap().len();
+                            if idx + 1 < refs_count {
+                                self.editing = Editing::ReferenceType(Some(idx + 1));
+                            } else {
+                                self.editing = Editing::ReferenceType(Some(0));
+                            }
+                        } else {
+                            self.editing = Editing::ReferenceType(Some(0));
+                        }
+                    }
+                    KeyCode::Up => {
+                        if let Some(idx) = idx {
+                            let plants_count = REFERENCE_REGISTRY.lock().unwrap().len();
+                            if idx == 0 {
+                                self.editing = Editing::ReferenceType(Some(plants_count - 1));
+                            } else {
+                                self.editing = Editing::ReferenceType(Some(idx - 1));
+                            }
+                        } else {
+                            self.editing = Editing::ReferenceType(Some(0));
+                        }
+                    }
+                    KeyCode::Enter => {
+                        if let Some(selected_idx) = idx {
+                            let current = self.reference.name();
+                            let current_idx = REFERENCE_REGISTRY
+                                .lock()
+                                .unwrap()
+                                .keys()
+                                .position(|n| *n == current)
+                                .unwrap_or(0);
+                            if current_idx != selected_idx {
+                                self.reference = get_reference_by_index(selected_idx).unwrap();
+                                self.reset();
+                            }
+                        }
+                        self.editing = Editing::None;
+                    }
+                    _ => {}
+                },
                 Editing::PlantType(idx) => match k.code {
                     KeyCode::Esc => {
                         self.editing = Editing::None;
@@ -210,7 +226,12 @@ impl App {
                     KeyCode::Enter => {
                         if let Some(selected_idx) = idx {
                             let current = self.plant.name();
-                            let current_idx = PLANT_REGISTRY.lock().unwrap().keys().position(|n| *n == current).unwrap_or(0);
+                            let current_idx = PLANT_REGISTRY
+                                .lock()
+                                .unwrap()
+                                .keys()
+                                .position(|n| *n == current)
+                                .unwrap_or(0);
                             if current_idx != selected_idx {
                                 self.plant = get_plant_by_index(selected_idx).unwrap();
                                 self.reset();
@@ -231,8 +252,7 @@ impl App {
         if self.reference_data.len() >= self.samples_per_window {
             self.reference_data.drain(0..1);
         }
-        self.reference_data
-            .extend(self.reference.by_ref().take(1));
+        self.reference_data.extend(self.reference.by_ref().take(1));
 
         if self.is_controler_active {
             self.controller
@@ -259,7 +279,13 @@ impl App {
                 self.controller_data.drain(0..1);
             }
             let last_controller_output = self.controller_data.last().map_or(0.0, |(_, y)| *y);
-            let x = self.controller.by_ref().take(1).next().unwrap_or((0.0, 0.0)).0;
+            let x = self
+                .controller
+                .by_ref()
+                .take(1)
+                .next()
+                .unwrap_or((0.0, 0.0))
+                .0;
             self.controller_data.push((x, last_controller_output));
 
             self.plant.set_input(set_point);
@@ -362,18 +388,31 @@ impl App {
     fn render_settings(&mut self, frame: &mut Frame, settings: Rect) {
         let vertical = Layout::vertical([Constraint::Fill(1); 3]);
         let [reference, plant, controller] = settings.layout(&vertical);
-        frame.render_stateful_widget_ref(&self.reference, reference, &mut self.editing);
+
+        let outer_ref_block = if let Editing::Reference = self.editing {
+            Block::bordered()
+                .title_top(Line::from(vec![" Input ".into(), "<ESC> ".blue().bold()]))
+                .cyan()
+        } else {
+            Block::bordered().title_top(Line::from(vec![" Input ".into(), "<i/I> ".blue().bold()]))
+        };
+        let inner_ref_area = outer_ref_block.inner(reference);
+        frame.render_widget(outer_ref_block, reference);
+        self.reference
+            .render(frame, inner_ref_area, &mut self.editing);
 
         let outer_plant_block = if let Editing::Plant = self.editing {
-            Block::bordered().title_top(Line::from(vec![" Plant ".into(), "<ESC> ".blue().bold()])).cyan()
+            Block::bordered()
+                .title_top(Line::from(vec![" Plant ".into(), "<ESC> ".blue().bold()]))
+                .cyan()
         } else {
             Block::bordered().title_top(Line::from(vec![" Plant ".into(), "<p/P> ".blue().bold()]))
         };
         let inner_plant_area = outer_plant_block.inner(plant);
         frame.render_widget(outer_plant_block, plant);
-
         self.plant
             .render(frame, inner_plant_area, &mut self.editing);
+
         let controller_state = &mut (self.is_controler_active, self.editing.clone());
         frame.render_stateful_widget_ref(&self.controller, controller, controller_state);
         self.render_settings_cursor(frame, reference, plant, controller);
@@ -387,15 +426,10 @@ impl App {
         _controller: Rect,
     ) {
         match self.editing {
-            Editing::Reference => frame.set_cursor_position((
-                reference.x
-                    + self.reference.amplitude_edit.as_ref().map_or_else(
-                        || self.reference.amplitude.to_string().len() as u16,
-                        |a| a.cursor as u16,
-                    )
-                    + 13,
-                reference.y + 1,
-            )),
+            Editing::Reference => {
+                let (x_offset, y_offset) = self.reference.get_cursor_offsets();
+                frame.set_cursor_position((reference.x + x_offset, reference.y + y_offset))
+            }
             Editing::Plant => {
                 let (x_offset, y_offset) = self.plant.get_cursor_offsets();
                 frame.set_cursor_position((plant.x + x_offset, plant.y + y_offset))
@@ -449,43 +483,75 @@ impl App {
         frame.render_widget(chart, area);
     }
     fn render_edit_popup(&mut self, frame: &mut Frame) {
-        if let Editing::PlantType(idx) = self.editing {
-            let popup_block = Block::default()
-                .title("Choose a plant type (ESC to close)")
-                .borders(Borders::ALL)
-                .style(Style::default().bg(Color::Black).fg(Color::White));
-
-            let area = centered_rect(25, 25, frame.area());
-            frame.render_widget(Clear, area);
-            frame.render_widget(popup_block, area);
-            let current = self.plant.name();
-            // Build list items from registry
-                let items: Vec<ListItem> = PLANT_REGISTRY.lock().unwrap()
+        let (selected_idx, r#type, items) = match self.editing {
+            Editing::ReferenceType(idx) => {
+                let items: Vec<ListItem> = REFERENCE_REGISTRY
+                    .lock()
+                    .unwrap()
                     .keys()
                     .map(|name| ListItem::new(Span::raw(*name)))
                     .collect();
 
-                let list = List::new(items)
-                    .block(Block::default().borders(Borders::ALL).title("Choose a plant type (ESC to close)"))
-                    .highlight_style(
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    )
-                    .highlight_symbol(">> ");
-
+                let current = self.reference.name();
                 // Figure out which index corresponds to `current`
-                let selected_idx = idx.or_else(||PLANT_REGISTRY.lock().unwrap().keys().position(|n| *n == current) );
+                let selected_idx = idx.or_else(|| {
+                    REFERENCE_REGISTRY
+                        .lock()
+                        .unwrap()
+                        .keys()
+                        .position(|n| *n == current)
+                });
+                self.editing = Editing::ReferenceType(selected_idx);
+                (selected_idx, "reference", items)
+            }
+            Editing::PlantType(idx) => {
+                let items: Vec<ListItem> = PLANT_REGISTRY
+                    .lock()
+                    .unwrap()
+                    .keys()
+                    .map(|name| ListItem::new(Span::raw(*name)))
+                    .collect();
+
+                let current = self.plant.name();
+                // Figure out which index corresponds to `current`
+                let selected_idx = idx.or_else(|| {
+                    PLANT_REGISTRY
+                        .lock()
+                        .unwrap()
+                        .keys()
+                        .position(|n| *n == current)
+                });
                 self.editing = Editing::PlantType(selected_idx);
+                (selected_idx, "plant", items)
+            }
+            _ => return,
+        };
+        let title = format!("Choose a {} type (ESC to close)", r#type);
+        let popup_block = Block::default()
+            .title(title.clone())
+            .borders(Borders::ALL)
+            .style(Style::default().bg(Color::Black).fg(Color::White));
 
-                // Setup list state with highlighted element
-                let mut state = ListState::default();
-                if let Some(idx) = selected_idx {
-                    state.select(Some(idx));
-                }
+        let area = centered_rect(25, 25, frame.area());
+        frame.render_widget(Clear, area);
+        frame.render_widget(popup_block, area);
+        // Build list items from registry
+        let list = List::new(items)
+            .block(Block::default().borders(Borders::ALL).title(title))
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol(">> ");
 
-                frame.render_stateful_widget(list, area, &mut state);
+        // Setup list state with highlighted element
+        let mut state = ListState::default();
+        if let Some(idx) = selected_idx {
+            state.select(Some(idx));
         }
+
+        frame.render_stateful_widget(list, area, &mut state);
     }
 }
 /// helper function to create a centered rect using up certain percentage of the available rect `r`
