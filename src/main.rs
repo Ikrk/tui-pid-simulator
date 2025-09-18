@@ -28,8 +28,8 @@ fn main() -> Result<()> {
 }
 
 struct App {
-    referrence: StepSignal,
-    referrence_data: Vec<(f64, f64)>,
+    reference: StepSignal,
+    reference_data: Vec<(f64, f64)>,
     plant: Box<dyn Plant>,
     plant_data: Vec<(f64, f64)>,
     window: [f64; 2],
@@ -63,8 +63,8 @@ impl App {
         let output_data = plant.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         let controller_data = controller.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         Self {
-            referrence: input,
-            referrence_data: input_data,
+            reference: input,
+            reference_data: input_data,
             plant,
             plant_data: output_data,
             window: [0.0, WINDOW_SIZE],
@@ -79,9 +79,9 @@ impl App {
     }
 
     fn reset(&mut self) {
-        self.referrence.reset();
+        self.reference.reset();
         self.controller.reset();
-        self.referrence_data = self.referrence.by_ref().take(0).collect::<Vec<(f64, f64)>>();
+        self.reference_data = self.reference.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         self.plant_data = self.plant.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         self.controller_data = self.controller.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         self.window = [0.0, WINDOW_SIZE];
@@ -135,16 +135,16 @@ impl App {
                     _ => (),
                 },
                 Editing::Reference => {
-                    if self.referrence.amplitude_edit.is_none() {
-                        self.referrence.amplitude_edit =
-                            Some(NumericInput::from(self.referrence.amplitude.to_string()));
+                    if self.reference.amplitude_edit.is_none() {
+                        self.reference.amplitude_edit =
+                            Some(NumericInput::from(self.reference.amplitude.to_string()));
                     }
 
-                    if let Some(edit) = self.referrence.amplitude_edit.as_mut() {
+                    if let Some(edit) = self.reference.amplitude_edit.as_mut() {
                         match k.code {
                             KeyCode::Esc => {
                                 self.editing = Editing::None;
-                                self.referrence.amplitude_edit = None;
+                                self.reference.amplitude_edit = None;
                             }
                             KeyCode::Char(c) => {
                                 edit.insert(c);
@@ -167,8 +167,8 @@ impl App {
                             }
                             KeyCode::Enter => {
                                 if let Some(num) = edit.as_f64() {
-                                    self.referrence.amplitude = num;
-                                    self.referrence.amplitude_edit = None;
+                                    self.reference.amplitude = num;
+                                    self.reference.amplitude_edit = None;
                                     self.editing = Editing::None;
                                 }
                             }
@@ -228,15 +228,15 @@ impl App {
     }
 
     fn on_tick(&mut self) {
-        if self.referrence_data.len() >= self.samples_per_window {
-            self.referrence_data.drain(0..1);
+        if self.reference_data.len() >= self.samples_per_window {
+            self.reference_data.drain(0..1);
         }
-        self.referrence_data
-            .extend(self.referrence.by_ref().take(1));
+        self.reference_data
+            .extend(self.reference.by_ref().take(1));
 
         if self.is_controler_active {
             self.controller
-                .set_set_point(self.referrence_data.last().map_or(0.0, |(_, y)| *y));
+                .set_set_point(self.reference_data.last().map_or(0.0, |(_, y)| *y));
             if self.controller_data.len() >= self.samples_per_window {
                 self.controller_data.drain(0..1);
             }
@@ -253,7 +253,7 @@ impl App {
             self.controller
                 .set_plant_output(self.plant_data.last().map_or(0.0, |(_, y)| *y));
         } else {
-            let set_point = self.referrence_data.last().map_or(0.0, |(_, y)| *y);
+            let set_point = self.reference_data.last().map_or(0.0, |(_, y)| *y);
             // self.controller.reset_to_setpoint(set_point);
             if self.controller_data.len() >= self.samples_per_window {
                 self.controller_data.drain(0..1);
@@ -320,7 +320,7 @@ impl App {
                 .name("input")
                 .marker(symbols::Marker::Dot)
                 .style(Style::default().fg(Color::Cyan))
-                .data(&self.referrence_data),
+                .data(&self.reference_data),
             Dataset::default()
                 .name("output")
                 .marker(symbols::Marker::Braille)
@@ -362,7 +362,7 @@ impl App {
     fn render_settings(&mut self, frame: &mut Frame, settings: Rect) {
         let vertical = Layout::vertical([Constraint::Fill(1); 3]);
         let [reference, plant, controller] = settings.layout(&vertical);
-        frame.render_stateful_widget_ref(&self.referrence, reference, &mut self.editing);
+        frame.render_stateful_widget_ref(&self.reference, reference, &mut self.editing);
 
         let outer_plant_block = if let Editing::Plant = self.editing {
             Block::bordered().title_top(Line::from(vec![" Plant ".into(), "<ESC> ".blue().bold()])).cyan()
@@ -389,8 +389,8 @@ impl App {
         match self.editing {
             Editing::Reference => frame.set_cursor_position((
                 reference.x
-                    + self.referrence.amplitude_edit.as_ref().map_or_else(
-                        || self.referrence.amplitude.to_string().len() as u16,
+                    + self.reference.amplitude_edit.as_ref().map_or_else(
+                        || self.reference.amplitude.to_string().len() as u16,
                         |a| a.cursor as u16,
                     )
                     + 13,
