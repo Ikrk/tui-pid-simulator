@@ -57,7 +57,7 @@ impl App {
     fn new() -> Self {
         let sampling = 0.1;
         let samples_per_window = (WINDOW_SIZE / sampling) as usize;
-        let mut input = Box::new(StepSignal::new(sampling, 15.0));
+        let mut input = Box::new(StepSignal::default());
         let mut plant = Box::new(SecondOrderSystem::default());
         let mut controller = PIDController::new(0.8, 2.0, 2.0, 5.0, sampling);
         let input_data = input.by_ref().take(0).collect::<Vec<(f64, f64)>>();
@@ -81,6 +81,7 @@ impl App {
 
     fn reset(&mut self) {
         self.reference.reset();
+        self.plant.reset();
         self.controller.reset();
         self.reference_data = self.reference.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         self.plant_data = self.plant.by_ref().take(0).collect::<Vec<(f64, f64)>>();

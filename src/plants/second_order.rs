@@ -6,9 +6,9 @@ use ratatui::style::{Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{FrameExt, Paragraph, StatefulWidgetRef, Widget};
 
-use crate::{register_plant, Editing};
 use crate::plants::Plant;
 use crate::utils::NumericInput;
+use crate::{Editing, register_plant};
 
 const PLANT_NAME: &str = "SecondOrderSystem";
 
@@ -197,6 +197,12 @@ impl Plant for SecondOrderSystem {
         )));
     }
 
+    fn reset(&mut self) {
+        self.x = 0.0;
+        self.y_k = (0.0, 0.0);
+        self.u = (0.0, 0.0, 0.0);
+    }
+
     fn name(&self) -> &'static str {
         PLANT_NAME
     }
@@ -224,7 +230,7 @@ impl StatefulWidgetRef for SecondOrderSystem {
             if val.abs() < 0.01 && val != 0.0 {
                 format!("{:.2e}", val) // scientific notation
             } else {
-                format!("{:.2}", val)  // normal fixed 2 decimals
+                format!("{:.2}", val) // normal fixed 2 decimals
             }
         };
 
@@ -258,7 +264,11 @@ impl StatefulWidgetRef for SecondOrderSystem {
                 zeta_line.add_modifier(Modifier::BOLD),
                 wn_line.add_modifier(Modifier::BOLD),
                 Line::from(Span::styled(
-                    format!("y_k = ({}, {})", format_num(self.y_k.0), format_num(self.y_k.1)),
+                    format!(
+                        "y_k = ({}, {})",
+                        format_num(self.y_k.0),
+                        format_num(self.y_k.1)
+                    ),
                     Style::default().add_modifier(Modifier::BOLD).gray(),
                 )),
             ];
@@ -275,11 +285,16 @@ impl StatefulWidgetRef for SecondOrderSystem {
                     Style::default().add_modifier(Modifier::BOLD),
                 )),
                 Line::from(Span::styled(
-                    format!("y_k = ({}, {})", format_num(self.y_k.0), format_num(self.y_k.1)),
+                    format!(
+                        "y_k = ({}, {})",
+                        format_num(self.y_k.0),
+                        format_num(self.y_k.1)
+                    ),
                     Style::default().add_modifier(Modifier::BOLD),
                 )),
             ];
-            Paragraph::new(lines)        };
+            Paragraph::new(lines)
+        };
         paragraph.render(area, buf);
     }
 }

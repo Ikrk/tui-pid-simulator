@@ -6,9 +6,9 @@ use ratatui::style::{Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{FrameExt, Paragraph, StatefulWidgetRef, Widget};
 
-use crate::{register_plant,Editing};
 use crate::plants::Plant;
 use crate::utils::NumericInput;
+use crate::{Editing, register_plant};
 
 const PLANT_NAME: &str = "FirstOrderSystem";
 
@@ -48,7 +48,6 @@ impl FirstOrderSystem {
     pub fn set_ts(&mut self, ts: f64) {
         self.Ts = ts;
     }
-
 }
 
 impl Default for FirstOrderSystem {
@@ -137,6 +136,12 @@ impl Plant for FirstOrderSystem {
         self.edit = Some(FirstOrderEdit::A(NumericInput::from(self.a.to_string())));
     }
 
+    fn reset(&mut self) {
+        self.x = 0.0;
+        self.y_k = 0.0;
+        self.u = 0.0;
+    }
+
     fn render(&self, frame: &mut ratatui::Frame, area: Rect, state: &mut crate::Editing) {
         frame.render_stateful_widget_ref(self.clone(), area, state);
     }
@@ -218,4 +223,4 @@ impl StatefulWidgetRef for FirstOrderSystem {
     }
 }
 
-register_plant!(FirstOrderSystem,PLANT_NAME);
+register_plant!(FirstOrderSystem, PLANT_NAME);

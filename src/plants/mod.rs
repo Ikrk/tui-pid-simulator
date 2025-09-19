@@ -25,6 +25,7 @@ pub trait Plant: StatefulWidgetRef<State = Editing> + Iterator<Item = (f64, f64)
 
     fn set_input(&mut self, u: f64);
     fn set_edit(&mut self);
+    fn reset(&mut self);
 
     fn render(&self, frame: &mut Frame, area: Rect, state: &mut Editing);
     fn name(&self) -> &'static str;
