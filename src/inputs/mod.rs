@@ -7,6 +7,7 @@ use crate::Editing;
 
 pub mod step;
 pub mod sin;
+pub mod square;
 
 #[macro_export]
 macro_rules! register_reference {
