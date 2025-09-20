@@ -18,6 +18,7 @@ pub use controllers::pid_0::PIDController;
 pub use inputs::step::StepSignal;
 pub use plants::first_order::FirstOrderSystem;
 
+use crate::controllers::Controller;
 use crate::inputs::{get_reference_by_index, Reference, REFERENCE_REGISTRY};
 use crate::plants::second_order::SecondOrderSystem;
 use crate::plants::{PLANT_REGISTRY, Plant, get_plant_by_index};
@@ -50,6 +51,7 @@ pub enum Editing {
     Plant,
     PlantType(Option<usize>),
     Controller,
+    ControllerType(Option<usize>),
 }
 
 const WINDOW_SIZE: f64 = 20.0;
@@ -59,7 +61,7 @@ impl App {
         let samples_per_window = (WINDOW_SIZE / sampling) as usize;
         let mut input = Box::new(StepSignal::default());
         let mut plant = Box::new(SecondOrderSystem::default());
-        let mut controller = PIDController::new(0.8, 2.0, 2.0, 5.0, sampling);
+        let mut controller = PIDController::default();
         let input_data = input.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         let output_data = plant.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         let controller_data = controller.by_ref().take(0).collect::<Vec<(f64, f64)>>();
@@ -139,8 +141,15 @@ impl App {
                     KeyCode::Char('P') => {
                         self.editing = Editing::PlantType(None);
                     }
-                    KeyCode::Char('c') | KeyCode::Char('C') => {
+                    KeyCode::Char(' ') => {
                         self.is_controler_active = !self.is_controler_active;
+                    }
+                    KeyCode::Char('c') => {
+                        self.editing = Editing::Controller;
+                        self.controller.set_edit();
+                    }
+                    KeyCode::Char('C') => {
+                        // self.is_controler_active = !self.is_controler_active;
                     }
                     _ => (),
                 },
@@ -149,6 +158,9 @@ impl App {
                 }
                 Editing::Plant => {
                     self.plant.edit(&mut self.editing, k);
+                }
+                Editing::Controller => {
+                    self.controller.edit(&mut self.editing, k);
                 }
                 Editing::ReferenceType(idx) => match k.code {
                     KeyCode::Esc => {
@@ -243,7 +255,6 @@ impl App {
                     _ => {}
                 },
                 _ => (),
-                // Editing::Controller => todo!(),
             }
         }
         Ok(false)
@@ -411,7 +422,18 @@ impl App {
             .render(frame, inner_plant_area, &mut self.editing);
 
         let controller_state = &mut (self.is_controler_active, self.editing.clone());
-        frame.render_stateful_widget_ref(&self.controller, controller, controller_state);
+        let outer_controller_block = if let Editing::Controller = self.editing {
+            Block::bordered()
+                .title_top(Line::from(vec![" Controller ".into(), "<ESC> ".blue().bold()]))
+                .cyan()
+        } else {
+            Block::bordered().title_top(Line::from(vec![" Controller ".into(), "<c/C> ".blue().bold()]))
+        };
+        let inner_controller_area = outer_controller_block.inner(controller);
+        frame.render_widget(outer_controller_block, controller);
+        self.controller
+            .render(frame, inner_controller_area, controller_state);
+
         self.render_settings_cursor(frame, reference, plant, controller);
     }
 
@@ -420,7 +442,7 @@ impl App {
         frame: &mut Frame,
         reference: Rect,
         plant: Rect,
-        _controller: Rect,
+        controller: Rect,
     ) {
         match self.editing {
             Editing::Reference => {
@@ -430,6 +452,10 @@ impl App {
             Editing::Plant => {
                 let (x_offset, y_offset) = self.plant.get_cursor_offsets();
                 frame.set_cursor_position((plant.x + x_offset, plant.y + y_offset))
+            }
+            Editing::Controller => {
+                let (x_offset, y_offset) = self.controller.get_cursor_offsets();
+                frame.set_cursor_position((controller.x + x_offset, controller.y + y_offset))
             }
             _ => (),
         }

@@ -11,7 +11,6 @@ The simulator provides an interactive TUI where you can:
 The goal is not accuracy or production-grade control, but to visualize how PID controllers behave in different scenarios — directly from your terminal.
 
 ## ToDos (that may never be completed)
-- Allow modifying PID parameters
 - Show the contribution of each PID term
 - Allow setting sample time
 - Add support for soft-switching when enabling/disabling the controller
