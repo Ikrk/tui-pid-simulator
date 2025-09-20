@@ -22,6 +22,9 @@ pub trait Controller: StatefulWidgetRef<State = (bool, Editing)> + Iterator<Item
     fn get_cursor_offsets(&self) -> (u16, u16);
     fn edit(&mut self, editing: &mut Editing, k: KeyEvent);
 
+    fn set_plant_output(&mut self, y: f64);
+    fn set_set_point(&mut self, r: f64);
+
     fn set_edit(&mut self);
     fn reset(&mut self);
 

@@ -6,7 +6,7 @@ use ratatui::style::{Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{FrameExt, Paragraph, StatefulWidgetRef, Widget};
 
-use crate::Editing;
+use crate::{register_controller, Editing};
 use crate::controllers::Controller;
 use crate::utils::NumericInput;
 
@@ -81,13 +81,6 @@ impl PIDController {
 
         self.ku = (a1 / a0, a2 / a0);
         self.ke = (b0 / a0, b1 / a0, b2 / a0);
-    }
-    pub fn set_plant_output(&mut self, y: f64) {
-        self.y = y;
-    }
-    pub fn set_set_point(&mut self, r: f64) {
-        self.r = r;
-        // self.x = 0.0; // reset time when set point changes
     }
     /// Reset the controller to the set point value which effectively disables the controller.
     pub fn reset_to_setpoint(&mut self, u: f64) {
@@ -219,6 +212,13 @@ impl Controller for PIDController {
             }
             _ => {}
         }
+    }
+
+    fn set_plant_output(&mut self, y: f64) {
+        self.y = y;
+    }
+    fn set_set_point(&mut self, r: f64) {
+        self.r = r;
     }
 
     fn set_edit(&mut self) {
@@ -372,3 +372,5 @@ impl StatefulWidgetRef for PIDController {
         paragraph.render(area, buf);
     }
 }
+
+register_controller!(PIDController, CONTROLLER_NAME);

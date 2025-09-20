@@ -4,12 +4,11 @@ use color_eyre::Result;
 use crossterm::event::{self, KeyCode};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
-use ratatui::symbols::{self, Marker};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
-    Axis, Block, Borders, Chart, Clear, Dataset, FrameExt, GraphType, List, ListItem, ListState,
+    Axis, Block, Borders, Chart, Clear, Dataset, List, ListItem, ListState,
 };
-use ratatui::{DefaultTerminal, Frame};
+use ratatui::{symbols, DefaultTerminal, Frame};
 mod utils;
 mod controllers;
 mod inputs;
@@ -18,7 +17,7 @@ pub use controllers::pid_0::PIDController;
 pub use inputs::step::StepSignal;
 pub use plants::first_order::FirstOrderSystem;
 
-use crate::controllers::Controller;
+use crate::controllers::{get_controller_by_index, Controller, CONTROLLER_REGISTRY};
 use crate::inputs::{get_reference_by_index, Reference, REFERENCE_REGISTRY};
 use crate::plants::second_order::SecondOrderSystem;
 use crate::plants::{PLANT_REGISTRY, Plant, get_plant_by_index};
@@ -36,7 +35,7 @@ struct App {
     window: [f64; 2],
     samples_per_window: usize,
     sampling: f64,
-    controller: PIDController,
+    controller: Box<dyn Controller>,
     controller_data: Vec<(f64, f64)>,
     simulation_on: bool,
     editing: Editing,
@@ -61,7 +60,7 @@ impl App {
         let samples_per_window = (WINDOW_SIZE / sampling) as usize;
         let mut input = Box::new(StepSignal::default());
         let mut plant = Box::new(SecondOrderSystem::default());
-        let mut controller = PIDController::default();
+        let mut controller = Box::new(PIDController::default());
         let input_data = input.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         let output_data = plant.by_ref().take(0).collect::<Vec<(f64, f64)>>();
         let controller_data = controller.by_ref().take(0).collect::<Vec<(f64, f64)>>();
@@ -149,7 +148,7 @@ impl App {
                         self.controller.set_edit();
                     }
                     KeyCode::Char('C') => {
-                        // self.is_controler_active = !self.is_controler_active;
+                        self.editing = Editing::ControllerType(None);
                     }
                     _ => (),
                 },
@@ -254,7 +253,52 @@ impl App {
                     }
                     _ => {}
                 },
-                _ => (),
+                Editing::ControllerType(idx) => match k.code {
+                    KeyCode::Esc => {
+                        self.editing = Editing::None;
+                    }
+                    KeyCode::Down => {
+                        if let Some(idx) = idx {
+                            let controllers_count = CONTROLLER_REGISTRY.lock().unwrap().len();
+                            if idx + 1 < controllers_count {
+                                self.editing = Editing::ControllerType(Some(idx + 1));
+                            } else {
+                                self.editing = Editing::ControllerType(Some(0));
+                            }
+                        } else {
+                            self.editing = Editing::ControllerType(Some(0));
+                        }
+                    }
+                    KeyCode::Up => {
+                        if let Some(idx) = idx {
+                            let controllers_count = CONTROLLER_REGISTRY.lock().unwrap().len();
+                            if idx == 0 {
+                                self.editing = Editing::ControllerType(Some(controllers_count - 1));
+                            } else {
+                                self.editing = Editing::ControllerType(Some(idx - 1));
+                            }
+                        } else {
+                            self.editing = Editing::ControllerType(Some(0));
+                        }
+                    }
+                    KeyCode::Enter => {
+                        if let Some(selected_idx) = idx {
+                            let current = self.controller.name();
+                            let current_idx = CONTROLLER_REGISTRY
+                                .lock()
+                                .unwrap()
+                                .keys()
+                                .position(|n| *n == current)
+                                .unwrap_or(0);
+                            if current_idx != selected_idx {
+                                self.controller = get_controller_by_index(selected_idx).unwrap();
+                                self.reset();
+                            }
+                        }
+                        self.editing = Editing::None;
+                    }
+                    _ => {}
+                },
             }
         }
         Ok(false)
@@ -352,12 +396,12 @@ impl App {
         ];
         let datasets = vec![
             Dataset::default()
-                .name("input")
-                .marker(symbols::Marker::Dot)
+                .name("reference")
+                .marker(symbols::Marker::Braille)
                 .style(Style::default().fg(Color::Cyan))
                 .data(&self.reference_data),
             Dataset::default()
-                .name("output")
+                .name("plant output")
                 .marker(symbols::Marker::Braille)
                 .style(Style::default().fg(Color::Yellow))
                 .data(&self.plant_data),
@@ -399,10 +443,10 @@ impl App {
 
         let outer_ref_block = if let Editing::Reference = self.editing {
             Block::bordered()
-                .title_top(Line::from(vec![" Input ".into(), "<ESC> ".blue().bold()]))
+                .title_top(Line::from(vec![" Reference ".into(), "<ESC> ".blue().bold()]))
                 .cyan()
         } else {
-            Block::bordered().title_top(Line::from(vec![" Input ".into(), "<i/I> ".blue().bold()]))
+            Block::bordered().title_top(Line::from(vec![" Reference ".into(), "<i/I> ".blue().bold()]))
         };
         let inner_ref_area = outer_ref_block.inner(reference);
         frame.render_widget(outer_ref_block, reference);
@@ -546,6 +590,26 @@ impl App {
                 });
                 self.editing = Editing::PlantType(selected_idx);
                 (selected_idx, "plant", items)
+            }
+            Editing::ControllerType(idx) => {
+                let items: Vec<ListItem> = CONTROLLER_REGISTRY
+                    .lock()
+                    .unwrap()
+                    .keys()
+                    .map(|name| ListItem::new(Span::raw(*name)))
+                    .collect();
+
+                let current = self.controller.name();
+                // Figure out which index corresponds to `current`
+                let selected_idx = idx.or_else(|| {
+                    CONTROLLER_REGISTRY
+                        .lock()
+                        .unwrap()
+                        .keys()
+                        .position(|n| *n == current)
+                });
+                self.editing = Editing::ControllerType(selected_idx);
+                (selected_idx, "controller", items)
             }
             _ => return,
         };
