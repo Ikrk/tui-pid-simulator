@@ -11,11 +11,12 @@ The simulator provides an interactive TUI where you can:
 The goal is not accuracy or production-grade control, but to visualize how PID controllers behave in different scenarios — directly from your terminal.
 
 ## ToDos (that may never be completed)
-- Show the contribution of each PID term
-- Allow setting sample time
-- Add support for soft-switching when enabling/disabling the controller
 - Allow setting all input signal and plant parameters
+- Allow setting sample time
+- Show the contribution of each PID term
+- Add better support for soft-switching when enabling/disabling the controller
 - Allow modifying charts axis settings
 - Add support for dynamic axis settings
 - Add basic stability analysis tools
-- Add support for multiple controllers
+- Add additional controllers
+- Add controller output capping, antiwindup and other advanced features
