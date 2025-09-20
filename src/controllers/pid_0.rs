@@ -70,8 +70,8 @@ impl PIDController {
     }
     /// Reset the controller to the set point value which effectively disables the controller.
     pub fn reset_to_setpoint(&mut self, u: f64) {
-        self.u.1 = u;
-        self.u.2 = u;
+        self.u.1 = 0.0;
+        self.u.2 = 0.0;
         self.set_set_point(u);
         self.e.1 = 0.0;
         self.e.2 = 0.0;
