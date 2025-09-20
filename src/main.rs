@@ -302,21 +302,18 @@ impl App {
     }
 
     fn render(&mut self, frame: &mut Frame) {
-        let vertical = Layout::vertical([Constraint::Fill(3), Constraint::Fill(2)]);
-        let [top, bottom] = frame.area().layout(&vertical);
         let horizontal = Layout::horizontal([Constraint::Length(29), Constraint::Fill(1)]);
-        let [bar_chart, animated_chart] = top.layout(&horizontal);
-        let [controller_chart, scatter] =
-            bottom.layout(&Layout::horizontal([Constraint::Fill(1); 2]));
+        let [settings, charts] = frame.area().layout(&horizontal);
+        let vertical = Layout::vertical([Constraint::Fill(3), Constraint::Fill(2)]);
+        let [top, bottom] = charts.layout(&vertical);
 
-        self.render_animated_chart(frame, animated_chart);
-        self.render_settings(frame, bar_chart);
-        self.render_controller_chart(frame, controller_chart);
-        render_scatter(frame, scatter);
+        self.render_input_output_charts(frame, top);
+        self.render_settings(frame, settings);
+        self.render_controller_chart(frame, bottom);
         self.render_edit_popup(frame);
     }
 
-    fn render_animated_chart(&self, frame: &mut Frame, area: Rect) {
+    fn render_input_output_charts(&self, frame: &mut Frame, area: Rect) {
         let x_labels = vec![
             Span::styled(
                 format!("{:.1}", self.window[0]),
@@ -378,7 +375,6 @@ impl App {
                 Axis::default()
                     .title("Y Axis")
                     .style(Style::default().fg(Color::Gray))
-                    // .labels(["-20".bold(), "0".into(), "20".bold()])
                     .labels(y_labels)
                     .bounds([-20.0, 20.0]),
             );
@@ -477,7 +473,7 @@ impl App {
                 Axis::default()
                     .title("Y Axis")
                     .style(Style::default().fg(Color::Gray))
-                    .labels(["-30".bold(), "0".into(), "30".bold()])
+                    .labels(["-30.0".bold(), "0.0".into(), "30.0".bold()])
                     .bounds([-30.0, 30.0]),
             );
 
@@ -577,116 +573,3 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         ])
         .split(popup_layout[1])[1] // Return the middle chunk
 }
-fn render_scatter(frame: &mut Frame, area: Rect) {
-    let datasets = vec![
-        Dataset::default()
-            .name("Heavy")
-            .marker(Marker::Dot)
-            .graph_type(GraphType::Scatter)
-            .style(Style::new().yellow())
-            .data(&HEAVY_PAYLOAD_DATA),
-        Dataset::default()
-            .name("Medium".underlined())
-            .marker(Marker::Braille)
-            .graph_type(GraphType::Scatter)
-            .style(Style::new().magenta())
-            .data(&MEDIUM_PAYLOAD_DATA),
-        Dataset::default()
-            .name("Small")
-            .marker(Marker::Dot)
-            .graph_type(GraphType::Scatter)
-            .style(Style::new().cyan())
-            .data(&SMALL_PAYLOAD_DATA),
-    ];
-
-    let chart = Chart::new(datasets)
-        .block(Block::bordered().title(Line::from("Scatter chart").cyan().bold().centered()))
-        .x_axis(
-            Axis::default()
-                .title("Year")
-                .bounds([1960., 2020.])
-                .style(Style::default().fg(Color::Gray))
-                .labels(["1960", "1990", "2020"]),
-        )
-        .y_axis(
-            Axis::default()
-                .title("Cost")
-                .bounds([0., 75000.])
-                .style(Style::default().fg(Color::Gray))
-                .labels(["0", "37 500", "75 000"]),
-        )
-        .hidden_legend_constraints((Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)));
-
-    frame.render_widget(chart, area);
-}
-
-// Data from https://ourworldindata.org/space-exploration-satellites
-const HEAVY_PAYLOAD_DATA: [(f64, f64); 9] = [
-    (1965., 8200.),
-    (1967., 5400.),
-    (1981., 65400.),
-    (1989., 30800.),
-    (1997., 10200.),
-    (2004., 11600.),
-    (2014., 4500.),
-    (2016., 7900.),
-    (2018., 1500.),
-];
-
-const MEDIUM_PAYLOAD_DATA: [(f64, f64); 29] = [
-    (1963., 29500.),
-    (1964., 30600.),
-    (1965., 177_900.),
-    (1965., 21000.),
-    (1966., 17900.),
-    (1966., 8400.),
-    (1975., 17500.),
-    (1982., 8300.),
-    (1985., 5100.),
-    (1988., 18300.),
-    (1990., 38800.),
-    (1990., 9900.),
-    (1991., 18700.),
-    (1992., 9100.),
-    (1994., 10500.),
-    (1994., 8500.),
-    (1994., 8700.),
-    (1997., 6200.),
-    (1999., 18000.),
-    (1999., 7600.),
-    (1999., 8900.),
-    (1999., 9600.),
-    (2000., 16000.),
-    (2001., 10000.),
-    (2002., 10400.),
-    (2002., 8100.),
-    (2010., 2600.),
-    (2013., 13600.),
-    (2017., 8000.),
-];
-
-const SMALL_PAYLOAD_DATA: [(f64, f64); 23] = [
-    (1961., 118_500.),
-    (1962., 14900.),
-    (1975., 21400.),
-    (1980., 32800.),
-    (1988., 31100.),
-    (1990., 41100.),
-    (1993., 23600.),
-    (1994., 20600.),
-    (1994., 34600.),
-    (1996., 50600.),
-    (1997., 19200.),
-    (1997., 45800.),
-    (1998., 19100.),
-    (2000., 73100.),
-    (2003., 11200.),
-    (2008., 12600.),
-    (2010., 30500.),
-    (2012., 20000.),
-    (2013., 10600.),
-    (2013., 34500.),
-    (2015., 10600.),
-    (2018., 23100.),
-    (2019., 17300.),
-];
