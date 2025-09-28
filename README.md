@@ -22,6 +22,9 @@ cd tui-pid-simulator
 cargo run --release
 ```
 
+## How to Extend
+To add new input, plant, or controller models, add new file to the corresponding directory and implement one of the `Reference`, `Plant`, or `Controller` traits. Register your new model using the `register_reference`, `register_plant`, or `register_controller` macros and finally publish your module in the corresponding mod.rs file.
+
 ## ToDos (that may never be completed)
 - Allow setting all input signal and plant parameters
 - Allow setting sample time
