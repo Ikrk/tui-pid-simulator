@@ -3,12 +3,24 @@ This is a toy project to simulate a PID control loop in a terminal-based user in
 
 The simulator provides an interactive TUI where you can:
 
-- Experiment with reference signals (step, sine, square, pulse, etc.).
+- Experiment with reference signals (step, sine, square, etc.).
 - Choose between different plant models (e.g., first-order, second-order systems).
 - Tune PID controller parameters (proportional, integral, derivative gains).
-- Observe real-time plots of the reference, plant output, and individual PID term contributions.
+- Observe real-time plots of the reference, plant, and controller output.
 
 The goal is not accuracy or production-grade control, but to visualize how PID controllers behave in different scenarios — directly from your terminal.
+
+![PID Simulator Demo](pid-simulator.gif)
+
+## Usage
+Install Rust if you haven't already and run the following commands from the terminal:
+```bash
+# Clone the repository
+git clone https://github.com/Ikrk/tui-pid-simulator.git
+cd tui-pid-simulator
+# Run the simulator
+cargo run --release
+```
 
 ## ToDos (that may never be completed)
 - Allow setting all input signal and plant parameters
